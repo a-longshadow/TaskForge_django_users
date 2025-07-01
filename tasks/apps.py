@@ -9,16 +9,31 @@ class TasksConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "tasks"
 
-    def ready(self):  # noqa: D401 – simple verb
-        # Register a post_migrate hook that ensures a default super-user exists.
+    def ready(self):
+        """Ensure a default super-user exists using env-provided creds.
+
+        Reads three optional environment variables *at runtime* (not at import):
+
+        • DEFAULT_ADMIN_USER
+        • DEFAULT_ADMIN_EMAIL
+        • DEFAULT_ADMIN_PASSWORD
+
+        If *all* three are set **and** the user does not already exist,
+        a super-user is created after migrations finish. If any variable is
+        missing, the function silently exits so local development isn't
+        affected.
+        """
+
         @receiver(post_migrate)
-        def _create_default_superuser(sender, **kwargs):  # noqa: ANN001 – signal kwargs
-            User = get_user_model()
-
+        def _bootstrap_superuser(sender, **kwargs):  # noqa: ANN001
             username = os.getenv("DEFAULT_ADMIN_USER")
+            email = os.getenv("DEFAULT_ADMIN_EMAIL")
             password = os.getenv("DEFAULT_ADMIN_PASSWORD")
-            email = os.getenv("DEFAULT_ADMIN_EMAIL", "")
 
-            # Only create when credentials are supplied *and* user is absent.
-            if username and password and not User.objects.filter(username=username).exists():
+            # Only act when all vars are provided
+            if not all([username, email, password]):
+                return
+
+            User = get_user_model()
+            if not User.objects.filter(username=username).exists():
                 User.objects.create_superuser(username=username, email=email, password=password) 
