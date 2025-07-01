@@ -1,0 +1,1147 @@
+ {
+  "name": "Joe's WorkArea",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "59 23 * * *"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -5860,
+        1500
+      ],
+      "id": "1fd344b9-633b-41b1-968c-69fa2e1a7e2b",
+      "name": "Trigger · Daily run (23:59 UTC)",
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "jsCode": "/********************************************************************\n * FILTER · Keep only NEW transcripts\n * Uses:  output of “Check · Transcript dupes – RAW folder”\n *\n * 1. Build a Set of file-names already present in RAW_TRANSCRIPTS.\n * 2. Walk through incoming items (Super-bundle or single meeting).\n * 3. Return only those whose filename is NOT in Drive.\n ********************************************************************/\n\nconsole.log('🔍 FILTER — deduplicating RAW transcripts');\n\n// ------------------------------------------------------------------\n// 1. Collect existing file-names from the Drive-search node\n// ------------------------------------------------------------------\nconst driveHits = $('Check · Transcript dupes – RAW folder').all();\nconst existing = new Set();\n\n/*  n8n Drive-search emits one item per hit:\n    [{ json: { id, name, mimeType, … } }, …]\n*/\ndriveHits.forEach(hit => {\n  if (hit.json?.name) existing.add(hit.json.name.toLowerCase());\n\n  // fallback for the older “files” array shape\n  (hit.json?.files || []).forEach(f => {\n    if (f.name) existing.add(f.name.toLowerCase());\n  });\n});\n\nconsole.log(`📁  Drive already contains ${existing.size} file(s)`);\n\n// ------------------------------------------------------------------\n// 2. Walk through incoming items and keep only the new ones\n// ------------------------------------------------------------------\nconst out = [];\n\nitems.forEach((item, idx) => {\n\n  // A. Super-bundle produced by Parse & Generate Filenames\n  if (Array.isArray(item.json?.all_meetings_with_filenames)) {\n    item.json.all_meetings_with_filenames.forEach((m, mIdx) => {\n      const fn = (m.filename || '').toLowerCase();\n      if (!fn) return console.log(`⚠️  Bundle ${idx}/${mIdx} missing filename`);\n\n      if (existing.has(fn)) {\n        console.log(`⏭️  Duplicate skipped: ${fn}`);\n      } else {\n        out.push({ json: m });\n        existing.add(fn);          // avoid double-adds within same run\n        console.log(`✅ New file   : ${fn}`);\n      }\n    });\n\n  // B. Single-meeting item\n  } else if (item.json?.filename) {\n    const fn = item.json.filename.toLowerCase();\n\n    if (existing.has(fn)) {\n      console.log(`⏭️  Duplicate skipped: ${fn}`);\n    } else {\n      out.push(item);\n      existing.add(fn);\n      console.log(`✅ New file   : ${fn}`);\n    }\n\n  } else {\n    console.log(`⚠️  Item ${idx} has unexpected structure`);\n  }\n});\n\n// ------------------------------------------------------------------\nconsole.log(`🎯 FILTER COMPLETE — kept ${out.length} / ${items.length} item(s)`);\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4100,
+        1120
+      ],
+      "id": "0b00ea62-e12d-4c43-848c-dff2ed10de72",
+      "name": "Filter · Keep only NEW transcripts"
+    },
+    {
+      "parameters": {
+        "operation": "createFromText",
+        "content": "={{ JSON.stringify($json, null, 2) }}",
+        "name": "={{ $json.filename }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "1WYaF58QGAnDIMIXLmhuRKqw0Qjof8iSe",
+          "mode": "list",
+          "cachedResultName": "RAW_TRANSCRIPTS",
+          "cachedResultUrl": "https://drive.google.com/drive/folders/1WYaF58QGAnDIMIXLmhuRKqw0Qjof8iSe"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        -3420,
+        1220
+      ],
+      "id": "f1341854-059b-44ac-aa37-44c2662198ef",
+      "name": "Load · Upload raw transcript JSON",
+      "retryOnFail": false,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "ej5HKdNlZWQiddEH",
+          "name": "Google Drive account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-2.5-flash-preview-05-20",
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        -4580,
+        1880
+      ],
+      "id": "6f98341b-2253-46f3-95ca-d362157d1b39",
+      "name": "Transform · LLM model (Gemini 2.5)",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "G2qzH1zqSv7JmOPg",
+          "name": "Google Gemini(PaLM) Api "
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "===== System ===\nYou are TaskForge, an expert AI assistant. Your sole purpose is to meticulously extract discrete to‑do items from meeting data.\nYou MUST output only a JSON array of task objects. Do not include any introductory text, markdown, backticks, or commentary outside the JSON array.\n\nEach task object in the array **MUST** have exactly these fields:\n- task_item (string)\n- assignee_emails (string)\n- assignee(s)_full_names (string) e.g. Joe Maina or Andrew Hero, John Doe\n- priority (string: \"High\", \"Medium\", or \"Low\")\n- brief_description (string)\n- date_expected (string: Monday.com date format \"YYYY-MM-DD\")\n\n**Additional Requirements:**\n\n0. **Transcript‑Sanitisation (Fireflies remediation)**  \n   - Before extracting tasks, perform a one‑pass cleanup on every transcript sentence.  \n   - Standardise spacing, remove obvious filler tokens (\"uh,\" \"you know,\" \"right?\") and correct blatant mis‑spellings.  \n   - **Critically, normalise name spellings for these five primary participants—strict, case‑insensitive, fuzzy‑matched:**  \n     • Andrew Hemingway  \n     • Levi Rybalov  \n     • Vardhan Shorewala  \n     • Yang Zheng  \n     • Joe Maina  \n   - If any variant (e.g., \"Levy Ribalov,\" \"Vardan Shorewalla\") is detected, replace it with the canonical form above **before** all downstream logic.  \n   - For all other names, best‑effort correction is acceptable but not mandatory.\n\n1. **Multi‑Assignee Detection:**  \n   - If an action item clearly involves more than one person (e.g., \"Alice and Bob will…\"), include all their emails in `assignee_emails` (comma‑separated) and all their names in `assignee(s)_full_names`.  \n\n2. **Account Deduplication:**  \n   - If a participant appears under multiple accounts (invitee vs. speaker), choose one canonical name/email mapping and do not repeat them.  \n\n3. **Verbatim Task Text:**  \n   - `task_item` and `brief_description` must match the transcript's wording exactly (aside from minimal grammar adjustments). Cite the speaker and timestamp in parentheses after each task description. Avoid any purely generative re‑phrasing except to correct grammar or to meet word‑count limits.\n\n4. **Inference Rules (apply in this order):**  \n   4.1 **Primary source – \"Explicitly Listed Action Items.\"**  \n   4.2 **Assignee inference –**  \n        • Scan the Full Transcript for patterns like \"X will…,\" \"Let's have X…,\" or \"Can you X…?\"  \n        • Map X's first or last name to the Attendees list (displayName → email).  \n        • If a match is found, fill `assignee_emails`; only use null if no name match appears anywhere.  \n        • Normally, the host issues tasks to the attendees.  \n   4.3 **Date‑Expected Calculation Logic (NEW):**  \n        • Scrape for explicit phrases (\"May 16,\" \"next Friday,\" \"by EOD tomorrow,\" \"within a week\").  \n        • Convert explicit or relative references to a millisecond timestamp **internally** (UTC).  \n        • If no temporal clue exists, infer a date using best‑practice business heuristics:  \n          – High‑priority & short phrases like \"ASAP,\" \"soon,\" \"immediately\" ⇒ tomorrow EOD.  \n          – \"Next week\" ⇒ first business day of next week, 09:00 local time.  \n          – \"After the meeting\" ⇒ current day, 17:00 local time.  \n          – Anything ambiguous defaults to five business days after meeting date, 17:00 local time.  \n        • Convert this inferred date to Monday.com format (YYYY-MM-DD) and include it in the `date_expected` field.  \n   4.4 **Priority inference –**  \n        • Urgent or time‑bound tasks ⇒ \"High.\"  \n        • Strategic or multi‑day tasks ⇒ \"Medium.\"  \n        • Informational or low‑stakes tasks ⇒ \"Low.\"  \n   4.5 **Status inference –**  \n        • Acceptable tags: \"To Do\", \"Stuck\", \"Working on it\", \"Waiting for review\", \"Approved\", \"Done\".  \n        • Use transcript cues (\"we've already done X\" ⇒ \"Done\"; \"I'm working on X\" ⇒ \"Working on it\").  \n        • Default to \"To Do\" only if no other status is indicated.  \n\n5. **Brief description:**  \n   - Must be at least 30 words and maximum 50 words.  \n   - Must expand on the `task_item` with context (why the task exists, how it will be done, with whom), explicitly stating **who assigned** the task and **to whom** it was given.  \n   - Should incorporate timeline cues (e.g., \"next week,\" \"after the meeting,\" \"by end of day tomorrow\") in natural phrasing.\n\n6. **Count consistency:**  \n   - Output as many tasks as there are explicit ({{ $json.summary.action_items }} ± 2).  \n   - Only add truly new tasks found in transcript if they're critical and non‑duplicate.\n\n7. **Fallback:**  \n   - If no tasks are identifiable, return `[]`.\n\n=== User ===\nProcess only the following meeting data to extract tasks:\n\nMeeting Title: {{ $json.title }}  \nMeeting Date (ms): {{ $json.date }}  \nOrganizer Email: {{ $json.organizer_email }}  \n\nAttendees (name ↔ email):  \n{{ $json.meeting_attendees.map(a => `- ${a.displayName} <${a.email}>`).join(\"\\n\") }}\n\nExplicitly Listed Action Items:  \n{{ $json.summary.action_items }}\n\nMeeting Overview:  \n{{ $json.summary.overview }}\n\nFull Transcript:  \n{{ $json.sentences.map(s => `${s.speaker_name}: ${s.text}`).join(\"\\n\") }}\n\nReturn a JSON object with this exact structure:\n{\n  \"title\": \"{{ $json.title }}\",\n  \"organizer_email\": \"{{ $json.organizer_email }}\",\n  \"date\": \"{{ $json.date }}\",\n  \"id\": \"{{ $json.id }}\",\n  \"output\": \"[...your task array here...]\"\n}",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.9,
+      "position": [
+        -4520,
+        1680
+      ],
+      "id": "eb3a8799-d0ea-461a-ad87-437c50e61f3a",
+      "name": "Transform · AI Agent – extract/verify action items"
+    },
+    {
+      "parameters": {
+        "jsCode": "// SIMPLE TRANSFORM FIX - Just add the missing meeting fields\n// Replace your Transform node code with this\n\ntry {\n  const allTasks = [];\n  \n  for (const item of items) {\n    // Parse the JSON string from the output field to get meeting data\n    const outputString = item.json.output;\n    const jsonMatch = outputString.match(/```json\\s*(\\{[\\s\\S]*?\\})\\s*```/);\n    \n    if (jsonMatch) {\n      const parsedData = JSON.parse(jsonMatch[1]);\n      \n      // Extract meeting info from the parsed JSON (NOT from item.json)\n      const meetingTitle = parsedData.title;\n      const organizerEmail = parsedData.organizer_email;\n      const meetingDate = parsedData.date;\n      const meetingId = parsedData.id;\n      const tasks = Array.isArray(parsedData.output) ? parsedData.output : [];\n      \n      console.log(`Processing meeting: \"${meetingTitle}\" by ${organizerEmail}`);\n      \n      // Add meeting context to each task\n      tasks.forEach((task, index) => {\n        allTasks.push({\n          // Existing task data\n          ...task,\n          \n          // ACTUAL MEETING FIELDS YOU ASKED FOR\n          meeting_title: meetingTitle,\n          meeting_organizer: organizerEmail,\n          meeting_date: meetingDate,\n          meeting_id: meetingId,\n          \n          task_index: index,\n          total_tasks_in_meeting: tasks.length\n        });\n      });\n    }\n  }\n  \n  return allTasks;\n  \n} catch (error) {\n  console.error('Transform error:', error);\n  throw error;\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4100,
+        1840
+      ],
+      "id": "b7e2cbaf-f4ae-4570-9ee1-027f2fcfd36e",
+      "name": "Transform · Parse tasks → Monday schema"
+    },
+    {
+      "parameters": {
+        "jsCode": "/********************************************************************\n * REPORT · Build success summary  (fail-safe version)\n ********************************************************************/\n\nfunction safe(nodeName) {\n  try {\n    return $(nodeName).all();           // may throw if node missing/unexecuted\n  } catch (err) {\n    console.log(`ℹ️  ${nodeName} not executed in this run`);\n    return [];\n  }\n}\n\n/* ---------------------------------------------------------------\n * 1.  Grab data\n * ------------------------------------------------------------- */\nconst meetings       = safe('Parse & Generate Filenames');\nconst transcriptsOut = safe('Filter · Keep only NEW transcripts');\nconst actionJsonOut  = safe('Filter · Keep only NEW ACTION_ITEMS.json');\nconst mondayTasksOut = safe('Load · Create tasks on Monday board');\n\n/* fallback – items arriving to this node are always executed */\nconst fallbackMeetings = items.filter(i => i.json?.meeting_title);\n\n/* use whichever list is non-empty */\nconst totalMeetings = meetings.length      ? meetings\n                    : fallbackMeetings.length ? fallbackMeetings\n                    : [];\n\nconst nMeetings = totalMeetings.length;\nconst nTrans    = transcriptsOut.length;\nconst nAction   = actionJsonOut.length;\nconst nMonday   = mondayTasksOut.length;\n\nconst dupTrans  = Math.max(0, nMeetings - nTrans);\nconst dupAction = Math.max(0, nMeetings - nAction);\n\n/* ---------------------------------------------------------------\n * 2.  Build simple summary object\n * ------------------------------------------------------------- */\nconst summary = {\n  meetings_fetched      : nMeetings,\n  transcripts_uploaded  : nTrans,\n  action_json_uploaded  : nAction,\n  monday_items_created  : nMonday,\n  duplicates_skipped    : { transcripts: dupTrans, action_files: dupAction },\n  status                : (nMeetings || nTrans || nAction || nMonday) ? 'SUCCESS' : 'NO_NEW_DATA',\n};\n\n/* ---------------------------------------------------------------\n * 3.  Human-readable telegram / email\n * ------------------------------------------------------------- */\nconst tg = [\n  '*TASKFORGE EXECUTION SUMMARY*',\n  '──────────────',\n  `🕐 *Time*: ${new Date().toLocaleString()}`,\n  `🆔 *Exec*: ${$execution.id}`,\n  '',\n  `📋 *Meetings*      : ${nMeetings}`,\n  `🗒️ *Transcripts*   : ${nTrans}`,\n  `📁 *ACTION_JSON*   : ${nAction}`,\n  `✅ *Tasks → Monday*: ${nMonday}`,\n  `🚫 *Dupes (T/A)*   : ${dupTrans} / ${dupAction}`,\n  '',\n  '🏁 Finished.',\n].join('\\n');\n\nconst email = `\n<h2 style=\"margin:0;\">TASKFORGE EXECUTION SUMMARY</h2>\n<hr/>\n<table style=\"font-family:monospace;font-size:13px;\">\n <tr><td>Completed&nbsp;:</td><td>${new Date().toLocaleString()}</td></tr>\n <tr><td>Execution&nbsp;ID&nbsp;:</td><td>${$execution.id}</td></tr>\n <tr><td>Meetings&nbsp;Fetched&nbsp;:</td><td>${nMeetings}</td></tr>\n <tr><td>Transcripts&nbsp;Uploaded&nbsp;:</td><td>${nTrans}</td></tr>\n <tr><td>Action&nbsp;JSON&nbsp;Uploaded&nbsp;:</td><td>${nAction}</td></tr>\n <tr><td>Tasks&nbsp;→ Monday&nbsp;:</td><td>${nMonday}</td></tr>\n <tr><td>Duplicates&nbsp;Skipped&nbsp;:</td><td>${dupTrans} / ${dupAction}</td></tr>\n</table>\n<hr/>\n<em>Report generated automatically by TaskForge.</em>\n`;\n\n/* ---------------------------------------------------------------\n * 4.  Return payload\n * ------------------------------------------------------------- */\nreturn [{\n  json: {\n    timestamp       : new Date().toLocaleString(),\n    execution_id    : $execution.id,\n    summary,\n    report_email    : email,\n    report_telegram : tg\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2820,
+        1800
+      ],
+      "id": "400a5632-c300-4b04-b5a1-3bfca0208377",
+      "name": "Report · Build success summary"
+    },
+    {
+      "parameters": {
+        "sendTo": "joe@coophive.network",
+        "subject": "🎉 TASKFORGE SUCCESS REPORT",
+        "message": "=={{ $json.report_email }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        -2100,
+        1940
+      ],
+      "id": "d9717e64-a0ef-43b6-af7d-f81d3fe62305",
+      "name": "Report · Email success summary",
+      "webhookId": "ec855212-04f7-416d-8cb6-975679a4b2a7",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "zY122nsAQ7cXt7Yh",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "6599177006",
+        "text": "={{ $json.report_telegram }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -2100,
+        1680
+      ],
+      "id": "e0de3262-da31-4f62-8a9f-52f1c85a9781",
+      "name": "Report · Telegram success summary (opt-out)",
+      "webhookId": "c584d153-3f7d-49e7-bf7c-f03207673624",
+      "executeOnce": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "jZqOptnRbmDRtkqR",
+          "name": "Telegram - test"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "/*****************************************************************\n * ERROR-MGR  –  Robust aggregator for global Error Trigger\n * --------------------------------------------------------------\n * • Works for Error Trigger payload OR manual error envelopes\n * • Produces the same schema your Gmail / Telegram nodes expect\n * • No emojis in e-mail subject / body; Telegram kept as is\n *****************************************************************/\n\nconst START_TIME = $execution.startedAt\n  ? new Date($execution.startedAt)\n  : new Date();\n\nconst RAW = items[0]?.json || {};\nconst TRIGGER_PAYLOAD = RAW.error ? RAW : null;      // manual Continue-on-Fail\nconst ERROR_PAYLOAD   = RAW.execution  ? RAW         // Error Trigger v1\n                       : RAW.data?.error ? RAW.data  // Error Trigger v2\n                       : null;\n\nconst errObj = (TRIGGER_PAYLOAD?.error)\n            || (ERROR_PAYLOAD?.error)\n            || { message: 'Unknown error', stack: '' };\n\nconst failedNode = errObj.node ? errObj.node.name || errObj.node\n                 : ERROR_PAYLOAD?.node?.name\n                 || 'unknown';\n\nconst executionId = ERROR_PAYLOAD?.execution || $execution.id || 'n/a';\nconst workflowId  = ERROR_PAYLOAD?.workflow  || $workflow.id  || 'n/a';\nconst execUrl     = `https://app.n8n.cloud/workflow/${workflowId}/executions/${executionId}`;\n\nconst runtimeSec  = Math.round((Date.now() - START_TIME.getTime()) / 1000);\n\n// ------------------------------------------------------------------\n// Simple classifier  →  severity & type\n// ------------------------------------------------------------------\nfunction classify(msg='') {\n  const text = msg.toLowerCase();\n  if (text.includes('timeout'))           return ['HIGH',   'TIMEOUT'];\n  if (text.includes('auth') || text.includes('401'))\n                                           return ['CRITICAL','AUTHENTICATION'];\n  if (text.includes('rate limit')||text.includes('429'))\n                                           return ['LOW',    'RATE_LIMIT'];\n  if (text.includes('not found')||text.includes('404'))\n                                           return ['MEDIUM', 'NOT_FOUND'];\n  return ['MEDIUM', 'GENERAL'];\n}\n\nconst [severity, errType] = classify(errObj.message || '');\n\n// ------------------------------------------------------------------\n// Build report object\n// ------------------------------------------------------------------\nconst report = {\n  timestamp       : new Date().toLocaleString(),\n  execution_id    : executionId,\n  runtime         : `${runtimeSec}s`,\n  progress        : 'n/a',\n  stage           : failedNode,\n  severity,\n\n  error_analysis  : {\n    type         : errType,\n    root_cause   : errObj.message,\n    auto_recovery: '❌ Manual Required',\n    recovery_time: 'n/a',\n    escalation   : severity === 'CRITICAL' ? 'Level 3 – P1' : 'Level 1'\n  },\n\n  pipeline_status : {\n    successful_stages: [],\n    failed_operations: [`${failedNode}`],\n    last_success     : 'unknown'\n  },\n\n  recovery_actions: {\n    immediate  : [\n      'Inspect the n8n execution log',\n      'Retry the workflow if the error is transient'\n    ],\n    preventive : [],\n    escalation : []\n  },\n\n  debug_info      : {\n    sample        : JSON.stringify(errObj, null, 2).slice(0, 300) + '…',\n    original_error: errObj.message,\n    input_data    : (TRIGGER_PAYLOAD?.input || ERROR_PAYLOAD?.input || '')\n                      .toString().slice(0, 200) + '…',\n    confidence    : errType === 'GENERAL' ? 'low' : 'high'\n  },\n\n  quick_links: {\n    execution     : execUrl,\n    monday_status : 'https://status.monday.com/',\n    monday_board  : 'https://coophive.monday.com/boards/9212659997',\n    fireflies_status: 'https://status.fireflies.ai/'\n  }\n};\n\n// ------------------------------------------------------------------\n// E-mail / Telegram rendering helpers (no emoji in e-mail)\n// ------------------------------------------------------------------\nfunction stripEmoji(str='') {\n  return str.replace(/\\p{Extended_Pictographic}/gu, '');\n}\n\nconst EMAIL_SUBJECT = stripEmoji(`TASKFORGE ERROR – ${errType} in ${failedNode}`);\nconst CLEAN_TELEGRAM = false;   // set true if you also want Telegram stripped\n\nconst TELEGRAM_MSG = [\n  '🚨 *TASKFORGE PIPELINE ERROR*',\n  '━━━━━━━━━━━━━━━━━━━━━━━',\n  `🕐 *When*   : ${report.timestamp}`,\n  `🆔 *Exec*   : ${executionId}`,\n  `📦 *Node*   : ${failedNode}`,\n  `🔥 *Error*  : ${errObj.message}`,\n  '',\n  `[Open execution log](${execUrl})`\n].join('\\n');\n\nconst EMAIL_HTML = `\n<h2 style=\"margin:0\">TASKFORGE PIPELINE ERROR</h2>\n<hr>\n<table style=\"font-family:monospace;font-size:13px\">\n<tr><td>Time&nbsp;:</td><td>${report.timestamp}</td></tr>\n<tr><td>Execution&nbsp;ID&nbsp;:</td><td>${executionId}</td></tr>\n<tr><td>Node&nbsp;:</td><td>${failedNode}</td></tr>\n<tr><td>Severity&nbsp;:</td><td>${severity}</td></tr>\n</table>\n<h3 style=\"margin-bottom:4px\">Message</h3>\n<pre style=\"font-size:13px\">${stripEmoji(errObj.message || '')}</pre>\n<h3 style=\"margin-bottom:4px\">Stack (first 3 lines)</h3>\n<pre style=\"font-size:12px\">${stripEmoji((errObj.stack||'').split('\\\\n').slice(0,3).join('\\\\n'))}</pre>\n<hr>\n<a href=\"${execUrl}\">Open n8n execution</a>\n`;\n\nreturn [{\n  json: {\n    ...report,\n    email_subject : EMAIL_SUBJECT,\n    email_html    : EMAIL_HTML,\n    telegram_message: CLEAN_TELEGRAM ? stripEmoji(TELEGRAM_MSG) : TELEGRAM_MSG\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2840,
+        1380
+      ],
+      "id": "47f403f6-0372-4713-b893-0ae9ea3c816f",
+      "name": "Error-Mgr · Build structured error report"
+    },
+    {
+      "parameters": {
+        "sendTo": "joe@coophive.network",
+        "subject": "🚨 TASKFORGE ERROR ALERT",
+        "message": "=<h2 style=\"margin:0; padding:0;\">TASKFORGE SYSTEM ALERT</h2>\n<hr/>\n\n<h3 style=\"margin-bottom:4px;\">INCIDENT SUMMARY</h3>\n<table style=\"font-family:monospace; font-size:13px;\">\n  <tr><td>Failed&nbsp;At&nbsp;:</td><td>{{ $json.timestamp }}</td></tr>\n  <tr><td>Execution&nbsp;ID&nbsp;:</td><td>{{ $json.execution_id }}</td></tr>\n  <tr><td>Runtime&nbsp;:</td><td>{{ $json.runtime }}</td></tr>\n  <tr><td>Progress&nbsp;:</td><td>{{ $json.progress }}</td></tr>\n  <tr><td>Stage&nbsp;:</td><td>{{ $json.stage }}</td></tr>\n  <tr><td>Severity&nbsp;:</td><td>{{ $json.severity }}</td></tr>\n</table>\n\n<h3 style=\"margin-bottom:4px;\">ERROR ANALYSIS</h3>\n<table style=\"font-family:monospace; font-size:13px;\">\n  <tr><td>Type&nbsp;:</td><td>{{ $json.error_analysis.type }}</td></tr>\n  <tr><td>Root Cause&nbsp;:</td><td>{{ $json.error_analysis.root_cause }}</td></tr>\n  <tr><td>Auto-Recovery&nbsp;:</td><td>{{ $json.error_analysis.auto_recovery }}</td></tr>\n  <tr><td>Recovery Time&nbsp;:</td><td>{{ $json.error_analysis.recovery_time }}</td></tr>\n  <tr><td>Escalation&nbsp;:</td><td>{{ $json.error_analysis.escalation }}</td></tr>\n</table>\n\n<h3 style=\"margin-bottom:4px;\">PIPELINE STATUS</h3>\n<strong>Successful Stages</strong><br/>\n<pre style=\"margin-top:0;\">{{ $json.pipeline_status.successful_stages.map(s => `• ${s.name}: ${s.count} items`).join('\\n') }}</pre>\n\n{{ $json.pipeline_status.failed_operations.length > 0\n  ? `<strong>Failed Operations</strong><br/><pre style=\"margin-top:0;\">` +\n    $json.pipeline_status.failed_operations.map(f => `• ${f}`).join('\\n') +\n    `</pre>`\n  : '' }}\n\nLast Success Stage: <strong>{{ $json.pipeline_status.last_success }}</strong>\n\n<h3 style=\"margin-bottom:4px;\">RECOVERY ACTIONS</h3>\n<strong>Immediate</strong><br/>\n<pre style=\"margin-top:0;\">{{ $json.recovery_actions.immediate.map(a => `• ${a}`).join('\\n') }}</pre>\n\n{{ $json.recovery_actions.preventive && $json.recovery_actions.preventive.length > 0\n  ? `<strong>Preventive</strong><br/><pre style=\"margin-top:0;\">` +\n    $json.recovery_actions.preventive.map(p => `• ${p}`).join('\\n') +\n    `</pre>`\n  : '' }}\n\n{{ $json.recovery_actions.escalation && $json.recovery_actions.escalation.length > 0\n  ? `<strong>Escalation</strong><br/><pre style=\"margin-top:0;\">` +\n    $json.recovery_actions.escalation.map(e => `• ${e}`).join('\\n') +\n    `</pre>`\n  : '' }}\n\n<h3 style=\"margin-bottom:4px;\">DIAGNOSTIC DATA</h3>\n<pre style=\"font-size:12px; white-space:pre-wrap; margin-top:0;\">\nSample : {{ $json.debug_info.sample }}\nOriginal: {{ $json.debug_info.original_error }}\nInput   : {{ $json.debug_info.input_data }}\nConfidence: {{ $json.debug_info.confidence }}\n</pre>\n\n<h3 style=\"margin-bottom:4px;\">SYSTEM LINKS</h3>\n<ul style=\"margin-top:0;\">\n  <li><a href=\"{{ $json.quick_links.execution }}\">Execution Details</a></li>\n  <li><a href=\"{{ $json.quick_links.monday_status }}\">Monday.com Status</a></li>\n  <li><a href=\"{{ $json.quick_links.monday_board }}\">Monday.com Board</a></li>\n  <li><a href=\"{{ $json.quick_links.fireflies_status }}\">Fireflies Status</a></li>\n</ul>\n\n<hr/>\n<em>Human intervention required.  Report generated automatically by TaskForge.</em>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        -2100,
+        1160
+      ],
+      "id": "7ce2b050-e8af-480e-aa08-fc3aa8490a5f",
+      "name": "Error · Email failure alert",
+      "webhookId": "ec855212-04f7-416d-8cb6-975679a4b2a7",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "zY122nsAQ7cXt7Yh",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "6599177006",
+        "text": "={{ $json.telegram_message ? $json.telegram_message : \"🚨 TASKFORGE ERROR ALERT\\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\\n\\n⚠️ FAILURE SUMMARY\\n┌─ 🕐 Failed At: \" + $json.timestamp + \"\\n├─ 🆔 Execution: \" + $json.execution_id + \"\\n├─ ⏱️ Runtime: \" + $json.runtime + \"\\n├─ 📊 Progress: \" + $json.progress + \"\\n├─ 🎯 Stage: \" + $json.stage + \"\\n└─ 🔥 Severity: \" + $json.severity + \"\\n\\n🔍 ERROR ANALYSIS\\n├─ 📝 Type: \" + $json.error_analysis.type + \"\\n├─ 🎯 Root Cause: \" + $json.error_analysis.root_cause + \"\\n├─ 🔄 Auto-Recovery: \" + $json.error_analysis.auto_recovery + \"\\n├─ ⏱️ Recovery Time: \" + $json.error_analysis.recovery_time + \"\\n└─ 🚨 Escalation: \" + $json.error_analysis.escalation + \"\\n\\n📊 PIPELINE STATUS\\n├─ ✅ Successful Stages: \" + $json.pipeline_status.successful_stages.length + \"\\n├─ ❌ Failed Operations: \" + $json.pipeline_status.failed_operations.length + \"\\n└─ 🎯 Last Success: \" + $json.pipeline_status.last_success + \"\\n\\n🛠️ RECOVERY ACTIONS\\n├─ 🚀 Check execution logs\\n├─ 🔄 Retry workflow manually\\n├─ 📊 Verify API services\\n└─ 👤 Review configuration\\n\\n🔗 QUICK LINKS\\n├─ 📊 Execution: \" + $json.quick_links.execution + \"\\n├─ 📋 Monday Board: \" + $json.quick_links.monday_board + \"\\n\\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\\n🆘 Human intervention required\" }}",
+        "replyMarkup": "inlineKeyboard",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -2100,
+        1420
+      ],
+      "id": "b14232f4-dc7f-4c8e-b53a-a5fe6d17c75a",
+      "name": "Error · Telegram failure alert",
+      "webhookId": "c584d153-3f7d-49e7-bf7c-f03207673624",
+      "executeOnce": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "jZqOptnRbmDRtkqR",
+          "name": "Telegram - test"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "🔵 EXTRACT Section",
+        "height": 1480,
+        "width": 900,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -5940,
+        880
+      ],
+      "id": "88ae07ff-7aeb-4483-a87f-c88f3e500221",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "🟣 TRANSFORM Section",
+        "height": 1180,
+        "width": 880,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -4740,
+        1020
+      ],
+      "id": "99b5acc0-7017-4bfc-9255-4d2a73236744",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "🟢 LOAD Section",
+        "height": 1080,
+        "width": 980,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -3640,
+        1100
+      ],
+      "id": "0d76a5ee-0f98-4f73-8ea2-bbb68ac842ea",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "🟡 REPORT Section ",
+        "height": 1160,
+        "width": 360,
+        "color": 2
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -2220,
+        1100
+      ],
+      "id": "70fc3557-85b9-4018-9fa0-90040867063c",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "content": "🔴HITL Section",
+        "height": 820,
+        "width": 1660,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -4560,
+        2300
+      ],
+      "id": "f45e6a82-5c00-481a-8417-42fce3c56f0d",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.fireflies.ai/graphql",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer 3482aac6-8fc3-4109-9ff9-31fef2a458eb"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"query\": \"query ListTranscripts($fromDate: DateTime!, $toDate: DateTime!, $limit: Int!) {\\n  transcripts(fromDate: $fromDate, toDate: $toDate, limit: $limit) {\\n    id\\n    title\\n    date\\n    duration\\n    transcript_url\\n    meeting_link\\n    organizer_email\\n    host_email\\n    meeting_info {\\n      silent_meeting\\n      fred_joined\\n      summary_status\\n    }\\n    summary {\\n      overview\\n      outline\\n      action_items\\n      keywords\\n      topics_discussed\\n      shorthand_bullet\\n      bullet_gist\\n      gist\\n      short_summary\\n      short_overview\\n      meeting_type\\n    }\\n    sentences {\\n      index\\n      speaker_id\\n      speaker_name\\n      raw_text\\n      text\\n      start_time\\n      end_time\\n      ai_filters {\\n        task\\n        pricing\\n        metric\\n        question\\n        date_and_time\\n        sentiment\\n      }\\n    }\\n    meeting_attendees {\\n      displayName\\n      email\\n      location\\n    }\\n  }\\n}\",\n  \"variables\": {\n   \"fromDate\": \"{{ $('FExtract · ilter_Todays_Meetings').first().json.from_date }}\",\n  \"toDate\": \"{{ $('FExtract · ilter_Todays_Meetings').first().json.to_date }}\",\n  \"limit\": 50\n  }\n}\n",
+        "options": {
+          "redirect": {
+            "redirect": {}
+          },
+          "timeout": 120000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -5240,
+        1840
+      ],
+      "id": "ed3c5112-1472-437c-92b4-763261ced5a1",
+      "name": "Extract · Detailed_Request",
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "xd0xbPt26XjPhgBI",
+          "name": "Bearer Auth FireFlies - Andrew"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "fileFolder",
+        "queryString": "={{ $json.filename }}",
+        "limit": 1,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "value": "1WYaF58QGAnDIMIXLmhuRKqw0Qjof8iSe",
+            "mode": "list",
+            "cachedResultName": "RAW_TRANSCRIPTS",
+            "cachedResultUrl": "https://drive.google.com/drive/folders/1WYaF58QGAnDIMIXLmhuRKqw0Qjof8iSe"
+          },
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        -5320,
+        1060
+      ],
+      "id": "dd902e91-59a5-4f81-82ba-50ab013568dc",
+      "name": "Check · Transcript dupes – RAW folder",
+      "executeOnce": false,
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "ej5HKdNlZWQiddEH",
+          "name": "Google Drive account 2"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.fireflies.ai/graphql",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer 3482aac6-8fc3-4109-9ff9-31fef2a458eb"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"query\": \"query ListTranscripts($mine: Boolean!, $limit: Int!) {\\n  transcripts(mine: $mine, limit: $limit) {\\n    id\\n    title\\n    date\\n    organizer_email\\n    host_email\\n  }\\n}\",\n  \"variables\": {\n    \"mine\": false,\n    \"limit\": 50\n  }\n}",
+        "options": {
+          "redirect": {
+            "redirect": {}
+          },
+          "timeout": 120000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -5580,
+        1500
+      ],
+      "id": "f24f4c67-c4f7-4bd4-9ca5-0c599f9c3557",
+      "name": "Extract · Extract_Header_Only_Request",
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "xd0xbPt26XjPhgBI",
+          "name": "Bearer Auth FireFlies - Andrew"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Filter for LAST 3 MEETINGS and provide date range for Detailed_Request\nconsole.log(`🔍 TESTING MODE: Finding last 3 meetings and calculating date range`);\n\nconst recentMeetingIDs = [];\nconst allMeetings = [];\n\nitems.forEach(item => {\n  if (item.json?.data?.transcripts) {\n    item.json.data.transcripts.forEach(meeting => {\n      allMeetings.push({\n        id: meeting.id,\n        title: meeting.title,\n        date: meeting.date,\n        date_formatted: new Date(meeting.date).toISOString().split('T')[0],\n        organizer_email: meeting.organizer_email,\n        host_email: meeting.host_email\n      });\n    });\n  }\n});\n\n// Sort meetings by date (newest first) and take the last 3\nallMeetings.sort((a, b) => b.date - a.date);\nconst last3Meetings = allMeetings.slice(0, 3);\n\n// Extract meeting IDs and dates\nconst meetingDates = [];\nlast3Meetings.forEach(meeting => {\n  recentMeetingIDs.push(meeting.id);\n  meetingDates.push(meeting.date);\n  console.log(`✅ Selected meeting: ${meeting.title} (${meeting.id}) - ${meeting.date_formatted}`);\n});\n\n// Calculate date range for GraphQL query\nlet fromDate, toDate;\n\nif (meetingDates.length > 0) {\n  // Find the earliest and latest dates\n  const earliestDate = Math.min(...meetingDates);\n  const latestDate = Math.max(...meetingDates);\n  \n  // Set fromDate to start of earliest day\n  fromDate = new Date(earliestDate);\n  fromDate.setUTCHours(0, 0, 0, 0);\n  \n  // Set toDate to end of latest day\n  toDate = new Date(latestDate);\n  toDate.setUTCHours(23, 59, 59, 999);\n  \n  console.log(`📅 Date range: ${fromDate.toISOString()} to ${toDate.toISOString()}`);\n} else {\n  // Fallback to today if no meetings found\n  const today = new Date();\n  fromDate = new Date(today);\n  fromDate.setUTCHours(0, 0, 0, 0);\n  toDate = new Date(today);\n  toDate.setUTCHours(23, 59, 59, 999);\n  \n  console.log(`⚠️ No meetings found, using today: ${fromDate.toISOString()} to ${toDate.toISOString()}`);\n}\n\nconsole.log(`📊 Total meetings found: ${allMeetings.length}`);\nconsole.log(`🎯 Selected meetings: ${recentMeetingIDs.length}`);\nconsole.log(`📋 Meeting IDs: ${recentMeetingIDs.join(', ')}`);\n\n// Return the data structure that Extract · Detailed_Request expects\nreturn [{\n  json: {\n    status: \"found_meetings\",\n    testing_mode: true,\n    today_date: new Date().toISOString().split('T')[0],\n    date_range: `${fromDate.toISOString().split('T')[0]} to ${toDate.toISOString().split('T')[0]}`,\n    meeting_ids: recentMeetingIDs,\n    meetings_count: recentMeetingIDs.length,\n    selected_meetings: last3Meetings,\n    // GraphQL variables for Extract · Detailed_Request\n    graphql_variables: {\n      fromDate: fromDate.toISOString(),\n      toDate: toDate.toISOString(),\n      limit: 50\n    },\n    // Individual date components for easy access\n    from_date: fromDate.toISOString(),\n    to_date: toDate.toISOString()\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -5580,
+        1840
+      ],
+      "id": "298c5212-8ae6-4ae0-ab55-1741d334623b",
+      "name": "FExtract · ilter_Todays_Meetings"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Filter for today's meetings using the IDs from Filter_Todays_Meetings node\nconst todaysMeetingIDs = new Set($('FExtract · ilter_Todays_Meetings').first().json.meeting_ids || []);\nconst TODAY_UTC = new Date().toISOString().split('T')[0];\n\nconsole.log(`🔍 Processing only today's meetings: ${Array.from(todaysMeetingIDs).join(', ')}`);\nconsole.log(`📅 Today's date: ${TODAY_UTC}`);\n\nconst consolidatedMeetings = [];\n\n// Helper function to sanitize text for filenames\nfunction sanitizeFilename(text) {\n  if (!text) return '';\n  let sanitized = text.replace(/[\\/\\\\:*\"<>|?]/g, '_');\n  sanitized = sanitized.replace(/\\s+/g, '_');\n  sanitized = sanitized.replace(/_+/g, '_');\n  sanitized = sanitized.replace(/^_+|_+$/g, '');\n  return sanitized.substring(0, 100);\n}\n\nfor (const response of $input.all()) {\n  const transcripts = response.json.data?.transcripts || [];\n  console.log(`📋 Processing ${transcripts.length} total transcripts from Fireflies`);\n\n  for (const t of transcripts) {\n    // ONLY process if this meeting ID is in today's list\n    if (!todaysMeetingIDs.has(t.id)) {\n      console.log(`⏭️ Skipping meeting ${t.id} - not scheduled for today`);\n      continue;\n    }\n\n    console.log(`✅ Processing today's meeting: ${t.title} (${t.id})`);\n    \n    let datePart = 'nodate';\n    if (t.date) {\n      try {\n        const meetingDate = new Date(t.date);\n        const year = meetingDate.getFullYear();\n        const month = (meetingDate.getMonth() + 1).toString().padStart(2, '0');\n        const day = meetingDate.getDate().toString().padStart(2, '0');\n        datePart = `${year}-${month}-${day}`;\n      } catch (e) {\n        datePart = 'nodate';\n      }\n    }\n\n    const sanitizedTitle = sanitizeFilename(t.title || 'UntitledMeeting');\n    \n    let participantPart = 'noparticipant';\n    const emailUser = (email) => email ? email.split('@')[0] : '';\n    const organizerPrefix = emailUser(t.organizer_email);\n    const hostPrefix = emailUser(t.host_email);\n    \n    if (organizerPrefix) {\n      participantPart = sanitizeFilename(organizerPrefix);\n    } else if (hostPrefix) {\n      participantPart = sanitizeFilename(hostPrefix);\n    }\n\n    const transcriptId = t.id || 'no_id';\n    const descriptiveFilename = `${datePart}_${sanitizedTitle}_${participantPart}_${transcriptId}.json`;\n\n    const meetingData = {\n      filename: descriptiveFilename,\n      original_fireflies_id: transcriptId,\n      id: t.id,\n      title: t.title,\n      date: t.date,\n      duration: t.duration,\n      transcript_url: t.transcript_url,\n      audio_url: t.audio_url,\n      video_url: t.video_url,\n      meeting_link: t.meeting_link,\n      organizer_email: t.organizer_email,\n      host_email: t.host_email,\n      meeting_info: t.meeting_info ? {\n        silent_meeting: t.meeting_info.silent_meeting ?? null,\n        fred_joined: t.meeting_info.fred_joined ?? null,\n        summary_status: t.meeting_info.summary_status ?? null,\n      } : null,\n      summary: t.summary ? {\n        overview: t.summary.overview ?? null,\n        outline: t.summary.outline ?? null,\n        action_items: t.summary.action_items || [],\n        keywords: t.summary.keywords || [],\n        topics_discussed: t.summary.topics_discussed || [],\n        shorthand_bullet: t.summary.shorthand_bullet ?? null,\n        bullet_gist: t.summary.bullet_gist ?? null,\n        gist: t.summary.gist ?? null,\n        short_summary: t.summary.short_summary ?? null,\n        short_overview: t.summary.short_overview ?? null,\n        meeting_type: t.summary.meeting_type ?? null,\n      } : null,\n      sentences: (t.sentences || []).map(s => ({\n        index: s.index,\n        speaker_id: s.speaker_id,\n        speaker_name: s.speaker_name,\n        raw_text: s.raw_text,\n        text: s.text,\n        start_time: s.start_time,\n        end_time: s.end_time,\n        ai_filters: s.ai_filters ? {\n            task: s.ai_filters.task ?? null,\n            pricing: s.ai_filters.pricing ?? null,\n            metric: s.ai_filters.metric ?? null,\n            question: s.ai_filters.question ?? null,\n            date_and_time: s.ai_filters.date_and_time ?? null,\n            sentiment: s.ai_filters.sentiment ?? null,\n        } : {},\n      })),\n      analytics: t.analytics ? {\n        sentiments: t.analytics.sentiments ? {\n          positive_pct: t.analytics.sentiments.positive_pct ?? null,\n          neutral_pct: t.analytics.sentiments.neutral_pct ?? null,\n          negative_pct: t.analytics.sentiments.negative_pct ?? null,\n        } : null,\n        categories: t.analytics.categories ? {\n          tasks: t.analytics.categories.tasks ?? null,\n          questions: t.analytics.categories.questions ?? null,\n          metrics: t.analytics.categories.metrics ?? null,\n          date_times: t.analytics.categories.date_times ?? null,\n        } : null,\n      } : null,\n      speakers: (t.speakers || []).map(sp => ({\n        speaker_id: sp.speaker_id,\n        name: sp.name,\n        duration: sp.duration,\n        word_count: sp.word_count,\n        filler_words: sp.filler_words,\n        questions: sp.questions,\n        monologues_count: sp.monologues_count,\n        duration_pct: sp.duration_pct,\n        words_per_minute: sp.words_per_minute,\n      })),\n      meeting_attendees: (t.meeting_attendees || []).map(a => ({\n        displayName: a.displayName ?? null,\n        email: a.email ?? null,\n        location: a.location ?? null,\n      })),\n    };\n    \n    consolidatedMeetings.push({ json: meetingData });\n  }\n}\n\nconsole.log(`📊 Final result: ${consolidatedMeetings.length} meetings processed for today`);\n\n// Handle no meetings scenario\nif (consolidatedMeetings.length === 0) {\n  console.log(`🟡 No meetings found for today (${TODAY_UTC})`);\n  return [{\n    json: {\n      status: 'no_meetings_today',\n      today_date: TODAY_UTC,\n      message: `No meetings found for today ${TODAY_UTC}`,\n      _workflow_status: 'no_meetings_today',\n      _date_checked: TODAY_UTC,\n      _message: `No meetings scheduled for ${TODAY_UTC}`\n    }\n  }];\n}\n\nreturn consolidatedMeetings;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4460,
+        1320
+      ],
+      "id": "6f278d1d-8f2e-49fd-a60c-0dc3cff1b10e",
+      "name": "Transform · Parse transcripts → generate filenames"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://web-production-c8f1d.up.railway.app/store-tasks",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "{\n  \"Content-Type\": \"application/json\"\n}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.railway_payload }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -3980,
+        2900
+      ],
+      "id": "0fbbab93-20cc-4e48-bd2b-2a6bc469d775",
+      "name": "HTTP POST / store-tasks (Railway)",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "sendTo": "joe@coophive.network",
+        "subject": "={{ $json.email_subject }}",
+        "message": "={{ $json.email_html }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        -4000,
+        2620
+      ],
+      "id": "75de1e7e-cbec-4601-971c-e97e79df1531",
+      "name": "Notify admin · Email approval request",
+      "webhookId": "5c1f7e1b-0825-4209-add7-f3bc7308f132",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "V0K2WenECbGTw1ZX",
+          "name": "Gmail account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "6599177006",
+        "text": "={{ $json.telegram_message }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -4000,
+        2340
+      ],
+      "id": "2f7b12d9-9ab2-4e9a-97bc-a64fdeee211a",
+      "name": "Notify admin · Telegram approval request",
+      "webhookId": "eb8cf76f-2db2-4a12-8770-07cb63401380",
+      "credentials": {
+        "telegramApi": {
+          "id": "dmMbOIXwtnHdJG0G",
+          "name": "Telegram - Official Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// UNIFIED Build_Payload_GraphQL - Handles Multiple Meetings & Serves All Downstream Nodes\n// Removes emojis from emails, accurate data extraction, proper Railway payload\n\ntry {\n  const tasks = items || [];\n  console.log(`📋 Processing ${tasks.length} tasks for HITL approval`);\n  \n  if (tasks.length === 0) {\n    throw new Error('No tasks received from Transform node');\n  }\n  \n  // GROUP TASKS BY MEETING\n  const meetingGroups = {};\n  let totalTasks = 0;\n  \n  tasks.forEach(task => {\n    const meetingId = task.json?.meeting_id || 'unknown';\n    const meetingTitle = task.json?.meeting_title || 'Unknown Meeting';\n    const meetingOrganizer = task.json?.meeting_organizer || 'Unknown';\n    const meetingDate = task.json?.meeting_date || new Date().toISOString();\n    \n    if (!meetingGroups[meetingId]) {\n      meetingGroups[meetingId] = {\n        meeting_title: meetingTitle,\n        meeting_organizer: meetingOrganizer,\n        meeting_date: meetingDate,\n        meeting_id: meetingId,\n        tasks: []\n      };\n    }\n    \n    meetingGroups[meetingId].tasks.push({\n      task_item: task.json?.task_item || `Task ${totalTasks + 1}`,\n      'assignee(s)_full_names': task.json?.['assignee(s)_full_names'] || 'Unassigned',\n      assignee_emails: task.json?.assignee_emails || '',\n      priority: task.json?.priority || 'Medium',\n      brief_description: task.json?.brief_description || 'No description',\n      date_expected: task.json?.date_expected || new Date().toISOString().split('T')[0],\n      meeting_title: meetingTitle,\n      meeting_organizer: meetingOrganizer,\n      meeting_date: meetingDate,\n      meeting_id: meetingId\n    });\n    \n    totalTasks++;\n  });\n  \n  const meetings = Object.values(meetingGroups);\n  const execId = `exec_${Date.now()}`;\n  \n  console.log(`🎯 Found ${meetings.length} meetings with ${totalTasks} total tasks`);\n  meetings.forEach(meeting => {\n    console.log(`   - \"${meeting.meeting_title}\" by ${meeting.meeting_organizer}: ${meeting.tasks.length} tasks`);\n  });\n  \n  // FLATTEN ALL TASKS FOR MONDAY.COM\n  const allMondayTasks = [];\n  meetings.forEach(meeting => {\n    allMondayTasks.push(...meeting.tasks);\n  });\n  \n  // CREATE APPROVAL URL\n  const approvalUrl = `https://web-production-c8f1d.up.railway.app?exec_id=${execId}`;\n  \n  // GENERATE MEETING SUMMARY FOR NOTIFICATIONS\n  let meetingSummary, organizerSummary;\n  if (meetings.length === 1) {\n    meetingSummary = meetings[0].meeting_title;\n    organizerSummary = meetings[0].meeting_organizer;\n  } else {\n    meetingSummary = `${meetings.length} meetings (${meetings.map(m => m.meeting_title).join(', ')})`;\n    organizerSummary = `Multiple organizers`;\n  }\n  \n  // TELEGRAM MESSAGE (with emojis)\n  const telegramMessage = `🔥 TaskForge Approval Required\n\n📋 Meeting: ${meetingSummary}\n👤 Organizer: ${organizerSummary}\n📊 Tasks: ${totalTasks} action items\n🆔 ID: ${execId}\n\n👆 CLICK TO APPROVE:\n${approvalUrl}\n\n⏰ Time-sensitive - Please review promptly`;\n\n  // EMAIL CONTENT (NO EMOJIS, clean formatting)\n  const emailSubject = `TaskForge: ${totalTasks} Action Items Need Approval`;\n  \n  let emailMeetingDetails = '';\n  if (meetings.length === 1) {\n    emailMeetingDetails = `\n<h3>Meeting Details</h3>\n<table style=\"font-family: Arial, sans-serif; border-collapse: collapse; width: 100%;\">\n  <tr><td style=\"padding: 8px; border: 1px solid #ddd;\"><strong>Meeting:</strong></td><td style=\"padding: 8px; border: 1px solid #ddd;\">${meetings[0].meeting_title}</td></tr>\n  <tr><td style=\"padding: 8px; border: 1px solid #ddd;\"><strong>Organizer:</strong></td><td style=\"padding: 8px; border: 1px solid #ddd;\">${meetings[0].meeting_organizer}</td></tr>\n  <tr><td style=\"padding: 8px; border: 1px solid #ddd;\"><strong>Tasks:</strong></td><td style=\"padding: 8px; border: 1px solid #ddd;\">${totalTasks} action items</td></tr>\n  <tr><td style=\"padding: 8px; border: 1px solid #ddd;\"><strong>Execution ID:</strong></td><td style=\"padding: 8px; border: 1px solid #ddd;\">${execId}</td></tr>\n</table>`;\n  } else {\n    emailMeetingDetails = `\n<h3>Meeting Details</h3>\n<p><strong>Multiple Meetings:</strong> ${meetings.length} meetings</p>\n<ul>\n${meetings.map(meeting => \n  `<li><strong>${meeting.meeting_title}</strong> by ${meeting.meeting_organizer} (${meeting.tasks.length} tasks)</li>`\n).join('')}\n</ul>\n<p><strong>Total Tasks:</strong> ${totalTasks} action items</p>\n<p><strong>Execution ID:</strong> ${execId}</p>`;\n  }\n  \n  const emailHtml = `\n<div style=\"font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;\">\n  <div style=\"background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; text-align: center;\">\n    <h1 style=\"margin: 0; font-size: 24px;\">TaskForge Approval Required</h1>\n  </div>\n  \n  ${emailMeetingDetails}\n  \n  <div style=\"text-align: center; margin: 30px 0;\">\n    <a href=\"${approvalUrl}\" style=\"background: #28a745; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-size: 16px; font-weight: bold;\">APPROVE TASKS</a>\n  </div>\n  \n  <p style=\"color: #dc3545; text-align: center; font-weight: bold;\">Time-sensitive approval required</p>\n  <p style=\"color: #666; font-size: 12px; text-align: center;\">This link will expire after use for security</p>\n</div>`;\n\n  // RAILWAY PAYLOAD (for HTTP Request node) - Fixed to match server.py expectations\n  const railwayPayload = {\n    execution_id: execId,\n    monday_tasks: allMondayTasks,\n    meeting_title: meetingSummary,\n    meeting_organizer: organizerSummary,\n    total_tasks: totalTasks,\n    created_at: new Date().toISOString(),\n    // Additional fields for Railway compatibility\n    meetings: meetings,\n    meeting_count: meetings.length,\n    approval_url: approvalUrl,\n    status: 'pending'\n  };\n\n  // MEETING DATA FOR BUILD PAYLOAD NODE\n  const meetingData = meetings.length === 1 ? {\n    title: meetings[0].meeting_title,\n    organizer: meetings[0].meeting_organizer,\n    date: meetings[0].meeting_date,\n    id: meetings[0].meeting_id,\n    summary: `Meeting with ${meetings[0].tasks.length} action items`\n  } : {\n    title: `${meetings.length} Meetings`,\n    organizer: 'Multiple',\n    date: new Date().toISOString(),\n    id: execId,\n    summary: `${meetings.length} meetings with ${totalTasks} total action items`\n  };\n\n  console.log(`✅ Generated unified payload:`);\n  console.log(`   - Telegram: ${meetingSummary} (${totalTasks} tasks)`);\n  console.log(`   - Email: Clean HTML format, no emojis`);\n  console.log(`   - Railway: ${Object.keys(railwayPayload).length} fields`);\n  console.log(`   - Build Payload: Meeting data prepared`);\n\n  // RETURN UNIFIED OUTPUT FOR ALL 3 DOWNSTREAM NODES\n  return [{\n    json: {\n      // FOR TELEGRAM NODE\n      telegram_message: telegramMessage,\n      \n      // FOR GMAIL NODE (clean, no emojis)\n      email_subject: emailSubject,\n      email_html: emailHtml,\n      \n      // FOR HTTP REQUEST NODE (Railway storage)\n      railway_payload: railwayPayload,\n      \n      // FOR BUILD PAYLOAD NODE (True HITL)\n      execution_id: execId,\n      monday_tasks: allMondayTasks,\n      meeting_title: meetingSummary,\n      meeting_organizer: organizerSummary,\n      meeting_date: meetings[0]?.meeting_date || new Date().toISOString(),\n      meeting_id: meetings[0]?.meeting_id || execId,\n      total_tasks: totalTasks,\n      meeting_count: meetings.length,\n      \n      approval: {\n        execution_id: execId,\n        status: 'pending'\n      },\n      \n      meeting_data: meetingData,\n      \n      // DEBUGGING INFO\n      debug_info: {\n        meetings_processed: meetings.length,\n        total_tasks: totalTasks,\n        meeting_breakdown: meetings.map(m => ({\n          title: m.meeting_title,\n          organizer: m.meeting_organizer,\n          task_count: m.tasks.length\n        }))\n      }\n    }\n  }];\n\n} catch (error) {\n  console.error('❌ Build_Payload_GraphQL Error:', error.message);\n  \n  // Emergency fallback\n  const execId = `error_${Date.now()}`;\n  return [{\n    json: {\n      telegram_message: `🚨 TaskForge Error: ${error.message}`,\n      email_subject: 'TaskForge Error',\n      email_html: `<h2>TaskForge Error</h2><p>${error.message}</p><p>Please check the workflow configuration.</p>`,\n      railway_payload: {\n        execution_id: execId,\n        error: error.message,\n        status: 'error'\n      },\n      execution_id: execId,\n      monday_tasks: [],\n      error: error.message\n    }\n  }];\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4380,
+        2740
+      ],
+      "id": "165de5a5-939f-4c95-943a-68a408a82e50",
+      "name": "Build payload · Telegram / Email / Railway"
+    },
+    {
+      "parameters": {
+        "url": "=https://web-production-c8f1d.up.railway.app/approved\n",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "execution_id",
+              "value": "={{ $json.execution_id }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 350000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -3100,
+        2900
+      ],
+      "id": "9795e073-589a-4dce-bacf-bd850e0fb92c",
+      "name": "HTTP GET / approved (wait ≤ 5 min)",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "/****************************************************************\n * BUILD PAYLOAD  –  GDrive  ❙  Monday.com\n * INPUT  : HTTP approval response → one flat array of tasks\n * OUTPUT : mixed list\n *          – itemType === 'drive_file'  →  to Google Drive node\n *          – itemType === 'monday_task' →  to Monday.com node\n ****************************************************************/\n\ntry {\n  /* ---------- 1.  Sanity-check inbound data ---------- */\n  const root = items[0]?.json || {};\n  const executionId   = root.execution_id;\n  const approvedTasks = root.approved_monday_tasks || [];\n\n  if (!executionId)   throw new Error('execution_id missing from payload');\n  if (!approvedTasks.length)\n    throw new Error('approved_monday_tasks array empty – nothing to create');\n\n  /* ---------- 2.  Group tasks per meeting ---------- */\n  const buckets = {};                     // meeting_id → { …, tasks[] }\n\n  approvedTasks.forEach(t => {\n    const mId    = t.meeting_id || 'unknown';\n    const bucket = buckets[mId] ||= {\n      meeting_id        : mId,\n      meeting_title     : t.meeting_title     || 'Untitled Meeting',\n      meeting_organizer : t.meeting_organizer || 'unknown@unknown',\n      meeting_date      : t.meeting_date      || Date.now(),\n      execution_id      : executionId,\n      tasks             : [],\n      total_tasks       : 0,\n      generated_at      : new Date().toISOString()\n    };\n    bucket.tasks.push({ ...t });          // keep full task for archive\n    bucket.total_tasks++;\n  });\n\n  /* ---------- 3.  Helpers ---------- */\n  const safeName = s =>\n    (s || 'Untitled')\n      .replace(/[\\\\/:*?\"<>|]+/g, '_')\n      .replace(/\\s+/g, '_')\n      .substring(0, 80);\n\n  /* ---------- 4.  Build outbound item list ---------- */\n  const out = [];\n\n  /* 4-A  Google-Drive items  (one per meeting) */\n  Object.values(buckets).forEach(b => {\n    out.push({\n      json: {\n        ...b,                                           // meeting + tasks\n        filename : `${safeName(b.meeting_title)}_${b.meeting_id}_ACTION_ITEMS.json`,\n        itemType : 'drive_file'                         // marker for humans\n      }\n    });\n  });\n\n  /* 4-B  Monday.com items  (one per task) */\n  approvedTasks.forEach(t => {\n    out.push({\n      json: {\n        task_item                  : t.task_item,\n        'assignee(s)_full_names'   : t['assignee(s)_full_names'],\n        assignee_emails            : t.assignee_emails,\n        priority                   : t.priority,\n        brief_description          : t.brief_description,\n        date_expected              : t.date_expected,\n        // Optional context fields – harmless to Monday but useful elsewhere\n        meeting_title              : t.meeting_title,\n        meeting_id                 : t.meeting_id,\n        execution_id               : executionId,\n        itemType                   : 'monday_task'\n      }\n    });\n  });\n\n  console.log(\n    `✅ Payload built: ${Object.keys(buckets).length} drive files, ` +\n    `${approvedTasks.length} Monday tasks`\n  );\n\n  return out;                               // single output for both branches\n} catch (err) {\n  console.error('❌ Build-payload error:', err.message);\n  // Fail fast so Error-Mgr handles it\n  throw err;\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3120,
+        2500
+      ],
+      "id": "34e2fb64-912a-46dd-a9c9-ae7936a15e8a",
+      "name": "Build payload · GDrive & Monday.com"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "780b79fc-2978-426c-82a7-2af31bec85dc",
+              "leftValue": "={{ $json.itemType }}",
+              "rightValue": "monday_task",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -3340,
+        2320
+      ],
+      "id": "f678b72e-e04b-4cd8-b32d-117a0a619a13",
+      "name": "Branch: Monday task vs Drive file"
+    },
+    {
+      "parameters": {
+        "resource": "fileFolder",
+        "queryString": "={{ $json.filename }}",
+        "limit": 1,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "value": "1PboVBKot2VbmK3z4D-wuT14b84zoEeXZ",
+            "mode": "list",
+            "cachedResultName": "ACTION_ITEMS",
+            "cachedResultUrl": "https://drive.google.com/drive/folders/1PboVBKot2VbmK3z4D-wuT14b84zoEeXZ"
+          },
+          "includeTrashed": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        -5580,
+        1060
+      ],
+      "id": "9bb68bd8-8276-43de-93e3-a7e986e6682c",
+      "name": "Check Drive · Action-item duplicates (ACTION_ITEMS folder)",
+      "executeOnce": false,
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "ej5HKdNlZWQiddEH",
+          "name": "Google Drive account 2"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "/********************************************************************\n * FILTER · Keep only NEW ACTION_ITEMS.json files\n * Uses: output of “Check · Action-item dupes – ACTION_ITEMS folder”\n *\n * 1. Build a Set of file-names that already exist in the Drive folder.\n * 2. From the incoming mixed stream keep only the objects that\n *    (a) come from Build-Payload  (itemType === 'drive_file')\n *    (b) have a filename\n *    (c) are NOT already in Drive.\n * 3. Return the filtered list to the Google-Drive node.\n ********************************************************************/\n\nconsole.log('🔍 FILTER — deduplicating ACTION_ITEMS files');\n\n// ---------------------------------------------------------------\n// 1. Collect existing names from the Drive-search node\n// ---------------------------------------------------------------\nlet driveHits = [];\ntry { driveHits = $('Check Drive · Action-item duplicates (ACTION_ITEMS folder)').all(); }\ncatch { /* node may be skipped on first run → leave hits empty */ }\n\nconst existing = new Set();\n\n// new n8n emits one hit per item; older emits json.files[]\ndriveHits.forEach(hit => {\n  if (hit.json?.name) existing.add(hit.json.name.toLowerCase());\n  (hit.json?.files || []).forEach(f => {\n    if (f.name) existing.add(f.name.toLowerCase());\n  });\n});\n\nconsole.log(`📁 Drive already contains ${existing.size} file(s)`);\n\n// ---------------------------------------------------------------\n// 2. Walk through incoming items\n// ---------------------------------------------------------------\nconst out = [];\n\nitems.forEach((item, i) => {\n  // Accept only the drive_file records produced by Build-Payload\n  if (item.json?.itemType !== 'drive_file') {\n    console.log(`⚠️  Item ${i} is not a drive_file → ignored`);\n    return;\n  }\n\n  const fn = (item.json.filename || '').toLowerCase();\n  if (!fn) {\n    console.log(`⚠️  Item ${i} missing filename → skipped`);\n    return;\n  }\n\n  if (existing.has(fn)) {\n    console.log(`⏭️  Duplicate skipped: ${fn}`);\n  } else {\n    out.push(item);\n    existing.add(fn);\n    console.log(`✅ New file   : ${fn}`);\n  }\n});\n\n// ---------------------------------------------------------------\nconsole.log(`🎯 FILTER COMPLETE — kept ${out.length} / ${items.length} item(s)`);\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4100,
+        1500
+      ],
+      "id": "7c5a3b7a-0be3-4d3f-a69c-d66113f2009f",
+      "name": "Transform · Keep only NEW ACTION_ITEMS.json"
+    },
+    {
+      "parameters": {
+        "operation": "createFromText",
+        "content": "={{ JSON.stringify($json, null, 2) }}",
+        "name": "={{ $json.filename }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "1PboVBKot2VbmK3z4D-wuT14b84zoEeXZ",
+          "mode": "list",
+          "cachedResultName": "ACTION_ITEMS",
+          "cachedResultUrl": "https://drive.google.com/drive/folders/1PboVBKot2VbmK3z4D-wuT14b84zoEeXZ"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        -3420,
+        1520
+      ],
+      "id": "48c4181a-2508-4554-bac6-24893df247b8",
+      "name": "Load · Upload Approved ACTION_ITEMS.json",
+      "retryOnFail": false,
+      "executeOnce": false,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "ej5HKdNlZWQiddEH",
+          "name": "Google Drive account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "boardItem",
+        "boardId": "9212659997",
+        "groupId": "group_mkqyryrz",
+        "name": "={{ $json.task_item }}",
+        "additionalFields": {
+          "columnValues": "={{\n  JSON.stringify({\n    \"text_mkr7jgkp\": $json[\"assignee(s)_full_names\"],\n    \"text_mkr0hqsb\": $json.assignee_emails ,\n    \"status_1\":      $json.priority,\n    \"long_text\":     $json.brief_description,\n    \"date_mkr7ymmh\": $json.date_expected\n  })\n}}\n\n\n\n"
+        }
+      },
+      "type": "n8n-nodes-base.mondayCom",
+      "typeVersion": 1,
+      "position": [
+        -3420,
+        1800
+      ],
+      "id": "1da989fb-3c67-4dd5-865c-05e2feac7725",
+      "name": "Load · Create Approved action items on Monday board",
+      "credentials": {
+        "mondayComApi": {
+          "id": "nBaakSxa79tEuokY",
+          "name": "Monday.com  - CoopHive"
+        }
+      },
+      "disabled": true
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        -3140,
+        1380
+      ],
+      "id": "6428910a-cf2a-4372-b796-b04bfb80b4ad",
+      "name": "Error Trigger (global)"
+    },
+    {
+      "parameters": {
+        "content": "\n# DOUBLE-CLICK TO OPEN DOCUMENTATION\n\n\n\n\n\n┌────────────┐    Fireflies GraphQL          ┌───────────────┐\n│ 23:59 cron │ ── headers + details  ───────▶│  EXTRACT n8n  │\n└────────────┘                               └────┬──────────┘\n                                                 (dedupe, filenames)\n                                                  │\n                                RAW transcripts   ▼\n                         ┌─────────────────────────────────┐\n                         │  LOAD ➀ Google Drive (RAW)      │\n                         └─────────────────────────────────┘\n                                                  │\n                                 Gemini-2.5 AI    ▼\n                         ┌─────────────────────────────────┐\n                         │  TRANSFORM (tasks → Monday)     │\n                         └─────────────────────────────────┘\n                                                  │\n                 Telegram / e-mail approval link  ▼\n                         ┌─────────────────────────────────┐\n                         │  HITL DASHBOARD (Railway Flask) │\n                         └─────────────────────────────────┘\n                                                  │ 5-min wait / auto-approve\n                                 Approved tasks   ▼\n                         ┌─────────────────────────────────┐\n                         │  BUILD PAYLOAD node             │\n                         └────┬────────┬───────────────────┘\n                              │        │\n            Monday items  ┌───▼───┐  Drive ACTION_JSON  ┌───▼───┐\n            LOAD ➁ Monday │Board │  LOAD ➂ Google Drive │ G-Drive│\n                          └──────┘                     └───────┘\n                              │\n                              ▼\n                      Wait 10 s → Success Report → Gmail / Telegram\n\n\n# TaskForge 2.1 – Developer Work-Book\n\n> Last updated: 2025-06-30\n\nThis document condenses everything a new maintainer needs to operate, debug, or extend **TaskForge** (n8n nightly workflow + Railway HITL server).\n\n---\n\n## 1 · Big-Picture Flow\n\n```\n23:59 cron → Fireflies GraphQL → EXTRACT\n                    │                 (dedupe, filenames)\n                    ▼\n           Upload RAW transcripts (G Drive)\n                    │\n           Gemini 2.5 AI → task objects\n                    │\n           HITL dashboard (≤5 min wait)\n                    │\n     ┌──────────────┬───────────────┐\n     ▼                              ▼\nUpload ACTION_ITEMS.json        Create Monday items\n                    │\n              Wait 10 s\n                    │\n            Success / Error report\n```\n\n---\n\n## 2 · Key Sections & Entry Nodes\n\n| Section    | Purpose                                              | Entry node name |\n|------------|------------------------------------------------------|-----------------|\n| EXTRACT    | Fetch headers ➜ last-3 meetings ➜ full transcripts   | `Fireflies API · Fetch meeting headers` |\n| TRANSFORM  | Clean transcript, extract tasks, map to Monday       | `AI Agent (Gemini) · Extract & verify action items` |\n| HITL       | Human-in-the-loop approval (5 min, auto-approve)      | Railway Flask `/store-tasks` & `/approved` |\n| LOAD       | Drive uploads + Monday board write                   | See **LOAD** nodes below |\n| REPORT     | Success / failure aggregation                        | `Report · Build success summary` & error path |\n\n---\n\n## 3 · Duplicate Protection\n\n| Artifact            | Search node                                       | Filter node                                 |\n|---------------------|---------------------------------------------------|---------------------------------------------|\n| RAW transcripts     | `Check Drive · Transcript duplicates (RAW folder)` | `Filter · Keep only NEW transcripts`        |\n| ACTION_ITEMS.json   | `Check Drive · Action-item duplicates (ACTION_ITEMS folder)` | `Filter · Keep only NEW ACTION_ITEMS.json` |\n\nBoth filters rely on the deterministic filename produced by **Parse & Generate Filenames**.\n\n---\n\n## 4 · HITL Approval Cycle\n\n1. n8n `POST /store-tasks` (sets 15-min expiry).\n2. UI polls `GET /get-tasks/<exec>`.\n3. Admin hand-picks → `POST /submit-approval` (stores only `approved:true`).\n4. n8n `GET /approved?execution_id=` keeps the HTTP socket open (≤ `APPROVAL_WAIT_SEC`, default 300 s). On timeout, server auto-approves remaining tasks and returns 200.\n\n*Dev note*: local dev uses SQLite (`check_same_thread=False`); production uses Postgres.\n\n---\n\n## 5 · Error Handling Strategy\n\n1. **Global Error Trigger** → `Error-Mgr · Build structured error report`.\n2. Error-Mgr enriches payload (node, stack, severity) and forwards to:\n   * Gmail (`Error · Email failure alert`)\n   * Telegram (`Error · Telegram failure alert`)\n3. Design-time JSON mistakes are still caught by the n8n UI (red toast).\n\n---\n\n## 6 · Success Reporting\n\nAfter all uploads/board writes complete, `Wait 10 s` feeds the **Report** node which counts:\n\n* meetings fetched\n* transcripts uploaded\n* ACTION_ITEMS uploaded\n* Monday items created\n* duplicates skipped\n\nOutputs `report_email` + `report_telegram` consumed by Gmail/Telegram nodes.\n\n---\n\n## 7 · Environment & Secrets\n\n| Variable            | Location | Purpose                                        |\n|---------------------|----------|------------------------------------------------|\n| `DATABASE_URL`      | Railway  | Postgres connection string                     |\n| `APPROVAL_WAIT_SEC` | Railway  | Max seconds `/approved` waits (default 300)    |\n| `FLASK_DEBUG`       | Local    | Set to `true` for hot-reload                   |\n| n8n credentials     | n8n UI   | HTTP Bearer, Google Drive OAuth, Monday token… |\n\n---\n\n## 8 · Local Development Quick-Start - https://github.com/a-longshadow/taskforge-approval-dashboard\n\n```bash\n# clone + venv\npip install -r app/requirements.txt\n\n# (optional) spin up Postgres\nexport DATABASE_URL=postgresql://postgres:postgres@localhost:5432/hitl\n\npython app/server.py   # UI at http://localhost:8080\n```\nAdjust HTTP nodes in n8n to hit `localhost:8080` while testing.\n\n---\n\n## 9 · Extending / Modifying\n\n* **Add new Drive artifact** – pattern: search node ➜ filter code ➜ upload node.\n* **Change AI rules** – edit system prompt in `AI Agent (Gemini)…` node.\n* **Increase throughput** – raise Gunicorn workers in `Procfile` (`web: gunicorn -w 4 …`).\n* **New error classes** – extend `classify()` in Error-Mgr.\n\n---\n\n## 10 · Troubleshooting Cheatsheet\n\n| Symptom                                  | Likely cause                              | Fix |\n|------------------------------------------|-------------------------------------------|-----|\n| `/approved` times out (504)              | Railway idle timeout < wait window        | Reduce `APPROVAL_WAIT_SEC` or raise Gunicorn `--timeout` |\n| Duplicate files after restart            | Wrong search node wired to filter         | Ensure filter gets output from correct `Check · … dupes` node |\n| Report node \"Referenced node is unexecuted\" | Branch skipped in this run              | Keep `Wait 10 s` before report; verify node names |\n| Flask \"closed DB\" locally                | SQLite thread safety                      | Already mitigated via `check_same_thread=False` |\n\n---\n\n**Ready to ship!** ",
+        "height": 1120,
+        "width": 1160,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "886abf35-15da-4ae0-8087-30ff0489877b",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -3080,
+        1800
+      ],
+      "id": "5aa0cbba-467c-4d4a-8ff4-7b5cdf2a29f2",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "guildId": {
+          "__rl": true,
+          "value": "1387861125781262521",
+          "mode": "list",
+          "cachedResultName": "Taskforge_Test",
+          "cachedResultUrl": "https://discord.com/channels/1387861125781262521"
+        },
+        "channelId": {
+          "__rl": true,
+          "value": "1387861126229917849",
+          "mode": "list",
+          "cachedResultName": "general",
+          "cachedResultUrl": "https://discord.com/channels/1387861125781262521/1387861126229917849"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        -2440,
+        2440
+      ],
+      "id": "fc125d38-3d7d-4129-9fb8-19078bd73929",
+      "name": "Discord",
+      "webhookId": "8dda5f99-e825-4924-a6b6-c85d31d87631",
+      "credentials": {
+        "discordBotApi": {
+          "id": "2LvLd3RGb47Rktur",
+          "name": "Discord Bot account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -2440,
+        2680
+      ],
+      "id": "0ae401a6-0a29-43c1-b76a-74a355e1078c",
+      "name": "HTTP Request"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Trigger · Daily run (23:59 UTC)": {
+      "main": [
+        [
+          {
+            "node": "Extract · Extract_Header_Only_Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter · Keep only NEW transcripts": {
+      "main": [
+        [
+          {
+            "node": "Load · Upload raw transcript JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load · Upload raw transcript JSON": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform · LLM model (Gemini 2.5)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Transform · AI Agent – extract/verify action items",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform · AI Agent – extract/verify action items": {
+      "main": [
+        [
+          {
+            "node": "Transform · Parse tasks → Monday schema",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform · Parse tasks → Monday schema": {
+      "main": [
+        [
+          {
+            "node": "Build payload · Telegram / Email / Railway",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report · Build success summary": {
+      "main": [
+        [
+          {
+            "node": "Report · Telegram success summary (opt-out)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Report · Email success summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error-Mgr · Build structured error report": {
+      "main": [
+        [
+          {
+            "node": "Error · Telegram failure alert",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Error · Email failure alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract · Detailed_Request": {
+      "main": [
+        [
+          {
+            "node": "Transform · Parse transcripts → generate filenames",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check · Transcript dupes – RAW folder": {
+      "main": [
+        [
+          {
+            "node": "Filter · Keep only NEW transcripts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract · Extract_Header_Only_Request": {
+      "main": [
+        [
+          {
+            "node": "FExtract · ilter_Todays_Meetings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FExtract · ilter_Todays_Meetings": {
+      "main": [
+        [
+          {
+            "node": "Extract · Detailed_Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform · Parse transcripts → generate filenames": {
+      "main": [
+        [
+          {
+            "node": "Transform · AI Agent – extract/verify action items",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Filter · Keep only NEW transcripts",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Check · Transcript dupes – RAW folder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP POST / store-tasks (Railway)": {
+      "main": [
+        [
+          {
+            "node": "HTTP GET / approved (wait ≤ 5 min)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build payload · Telegram / Email / Railway": {
+      "main": [
+        [
+          {
+            "node": "Notify admin · Telegram approval request",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Notify admin · Email approval request",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "HTTP POST / store-tasks (Railway)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP GET / approved (wait ≤ 5 min)": {
+      "main": [
+        [
+          {
+            "node": "Build payload · GDrive & Monday.com",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build payload · GDrive & Monday.com": {
+      "main": [
+        [
+          {
+            "node": "Branch: Monday task vs Drive file",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Discord",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Branch: Monday task vs Drive file": {
+      "main": [
+        [
+          {
+            "node": "Load · Create Approved action items on Monday board",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Transform · Keep only NEW ACTION_ITEMS.json",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Check Drive · Action-item duplicates (ACTION_ITEMS folder)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Drive · Action-item duplicates (ACTION_ITEMS folder)": {
+      "main": [
+        [
+          {
+            "node": "Transform · Keep only NEW ACTION_ITEMS.json",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform · Keep only NEW ACTION_ITEMS.json": {
+      "main": [
+        [
+          {
+            "node": "Load · Upload Approved ACTION_ITEMS.json",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load · Upload Approved ACTION_ITEMS.json": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Error Trigger (global)": {
+      "main": [
+        [
+          {
+            "node": "Error-Mgr · Build structured error report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Report · Build success summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Discord": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "ce9597ce-4e89-4ad0-b214-0b1865fa9609",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a6f30bd66fed7fcd249de9838e08b9e7b2adf65dc6cc773a40f041d31551bafa"
+  },
+  "id": "ZZxMpqKdWFc6fgWC",
+  "tags": []
+}

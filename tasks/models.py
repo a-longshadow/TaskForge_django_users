@@ -1,0 +1,157 @@
+from __future__ import annotations
+
+import uuid
+from django.conf import settings
+from django.db import models
+from django.utils import timezone
+from django.contrib.postgres.fields import JSONField  # Postgres backend extra
+
+
+class Meeting(models.Model):
+    """Represents a source meeting coming from the n8n pipeline."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    meeting_id = models.CharField(max_length=255, unique=True)
+    title = models.CharField(max_length=512)
+    organizer_email = models.EmailField()
+    date = models.DateTimeField()
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-date"]
+
+    def __str__(self) -> str:  # pragma: no cover
+        return f"{self.title} ({self.date:%Y-%m-%d})"
+
+
+class Task(models.Model):
+    """Action items extracted from meetings and awaiting user review."""
+
+    class Priority(models.TextChoices):
+        HIGH = "High", "High"
+        MEDIUM = "Medium", "Medium"
+        LOW = "Low", "Low"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    meeting = models.ForeignKey(Meeting, on_delete=models.CASCADE, related_name="tasks")
+
+    task_item = models.TextField()
+    assignee_names = models.CharField(max_length=512, blank=True)
+    assignee_emails = models.CharField(max_length=512, blank=True)
+    priority = models.CharField(max_length=6, choices=Priority.choices, default=Priority.MEDIUM)
+    brief_description = models.TextField()
+    date_expected = models.DateField()
+
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    monday_item_id = models.CharField(max_length=255, blank=True, null=True)
+    source_payload = models.JSONField(blank=True, null=True)
+    auto_approved = models.BooleanField(default=False)
+    posted_to_monday = models.BooleanField(default=False)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:  # pragma: no cover
+        return f"{self.task_item[:50]}… ({self.get_status_display()})"
+
+
+class ReviewAction(models.Model):
+    """Audit trail of user approvals, rejections, or edits."""
+
+    class Action(models.TextChoices):
+        APPROVE = "approve", "Approve"
+        REJECT = "reject", "Reject"
+        EDIT = "edit", "Edit"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="reviews")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    action = models.CharField(max_length=7, choices=Action.choices)
+    reason = models.TextField(blank=True)
+    timestamp = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["-timestamp"]
+
+    def __str__(self) -> str:  # pragma: no cover
+        return f"{self.get_action_display()} by {self.user or 'anonymous'} on {self.task_id}"
+
+
+class PageLog(models.Model):
+    """Simple per-request log for compliance & debugging."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    path = models.CharField(max_length=512)
+    method = models.CharField(max_length=10)
+    status_code = models.PositiveSmallIntegerField()
+    remote_addr = models.GenericIPAddressField(null=True, blank=True)
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-timestamp"]
+
+    def __str__(self) -> str:  # pragma: no cover
+        return f"{self.method} {self.path} ({self.status_code})"
+
+
+class AppSetting(models.Model):
+    """Key→value table for runtime–editable settings (edited via Django admin).
+
+    For security-sensitive values (API keys) ensure admin access is limited.
+    """
+
+    key = models.CharField(max_length=100, unique=True)
+    value = models.TextField(blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["key"]
+        verbose_name = "App Setting"
+        verbose_name_plural = "App Settings"
+
+    def __str__(self) -> str:  # pragma: no cover
+        return f"{self.key}"
+
+    @staticmethod
+    def get(key: str, default: str | None = None) -> str | None:
+        try:
+            return AppSetting.objects.get(key=key).value
+        except AppSetting.DoesNotExist:
+            return default
+
+
+class RawTranscript(models.Model):
+    """Stores full Fireflies transcript JSON (can be very large)."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    file_name = models.CharField(max_length=255, unique=True)
+    meeting = models.ForeignKey(Meeting, on_delete=models.CASCADE, related_name="transcripts", null=True, blank=True)
+    data = models.JSONField()  # handles tens of thousands of lines
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Raw transcript"
+        verbose_name_plural = "Raw transcripts"
+
+    def __str__(self):
+        return self.file_name
+
+
+class ActionItem(Task):
+    """Proxy model to expose Task under /admin/tasks/actionitem/."""
+
+    class Meta:
+        proxy = True
+        verbose_name = "Task"
+        verbose_name_plural = "Tasks" 

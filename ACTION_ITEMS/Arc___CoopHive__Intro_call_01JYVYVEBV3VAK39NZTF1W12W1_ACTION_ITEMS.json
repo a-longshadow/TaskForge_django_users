@@ -1,0 +1,41 @@
+{
+  "meeting_id": "01JYVYVEBV3VAK39NZTF1W12W1",
+  "meeting_title": "Arc | CoopHive: Intro call",
+  "meeting_organizer": "levi@coophive.network",
+  "meeting_date": "1751310000000",
+  "execution_id": "exec_1751318424317",
+  "tasks": [
+    {
+      "approved": true,
+      "assignee(s)_full_names": "Cynthia",
+      "assignee_emails": "cynthia@arc.dev",
+      "brief_description": "Cynthia was assigned by Axel Rojas to review updated job descriptions and handpick senior candidates. She must focus on specific experience requirements, aligning with Levi Rybalov's need for seasoned problem-solvers in distributed computing and networking. This task is a prerequisite for providing qualified candidates. (Axel Rojas, 18:41)",
+      "date_expected": "2025-07-30",
+      "meeting_date": "1751310000000",
+      "meeting_id": "01JYVYVEBV3VAK39NZTF1W12W1",
+      "meeting_organizer": "levi@coophive.network",
+      "meeting_title": "Arc | CoopHive: Intro call",
+      "priority": "High",
+      "processed_at": "2025-06-30T21:21:49.312Z",
+      "task_item": "Review job descriptions and handpick senior candidates based on specific experience requirements"
+    },
+    {
+      "approved": true,
+      "assignee(s)_full_names": "Levi Rybalov",
+      "assignee_emails": "levi@coophive.network",
+      "brief_description": "Levi Rybalov was instructed by Axel Rojas to avoid making any changes to the job postings on the platform. This is crucial to prevent conflicts or overwriting while Axel is actively updating the requirements, specifically changing the filters from mid-level to senior for both positions. This coordination ensures a smooth update process. (Axel Rojas, 13:57)",
+      "date_expected": "2025-07-29",
+      "meeting_date": "1751310000000",
+      "meeting_id": "01JYVYVEBV3VAK39NZTF1W12W1",
+      "meeting_organizer": "levi@coophive.network",
+      "meeting_title": "Arc | CoopHive: Intro call",
+      "priority": "Medium",
+      "processed_at": "2025-06-30T21:21:49.312Z",
+      "task_item": "Avoid making changes to job postings while Axel updates the requirements"
+    }
+  ],
+  "total_tasks": 2,
+  "generated_at": "2025-06-30T21:21:53.443Z",
+  "filename": "Arc___CoopHive__Intro_call_01JYVYVEBV3VAK39NZTF1W12W1_ACTION_ITEMS.json",
+  "itemType": "drive_file"
+}

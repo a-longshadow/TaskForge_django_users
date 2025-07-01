@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>TaskForge – Home</title>
+    <style>
+        :root {
+            --primary:#4c6ef5;
+            --secondary:#7b61ff;
+            --text:#ffffff;
+        }
+        *{box-sizing:border-box}
+        html,body{height:100%;margin:0;font-family:"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:#333;overflow-x:hidden}
+        body{display:flex;flex-direction:column;}
+        header{background:linear-gradient(135deg,var(--primary)0%,var(--secondary)100%);color:var(--text);padding:80px 20px;animation:fadeIn 1s ease-out}
+        h1{font-size:48px;margin:0 0 10px;letter-spacing:-1px}
+        p.tagline{font-size:18px;margin:0 0 40px;opacity:.9}
+        nav{display:flex;gap:20px;justify-content:center;flex-wrap:wrap}
+        a.button{padding:14px 32px;border-radius:8px;background:rgba(255,255,255,.15);color:var(--text);text-decoration:none;font-weight:600;backdrop-filter:blur(4px);transition:all .3s}
+        a.button:hover{background:rgba(255,255,255,.3);transform:translateY(-2px)}
+        main{flex:1;display:flex;align-items:center;justify-content:center;padding:40px 20px;}
+        .card{max-width:800px;text-align:center;animation:slideUp .7s ease-out}
+        footer{padding:20px 10px;font-size:14px;color:#777;text-align:center}
+        @keyframes fadeIn{0%{opacity:0}100%{opacity:1}}
+        @keyframes slideUp{0%{opacity:0;transform:translateY(20px)}100%{opacity:1;transform:translateY(0)}}
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Welcome to TaskForge</h1>
+        <p class="tagline">AI-assisted meeting transcripts &amp; action-item workflow</p>
+        <nav>
+            <a href="/admin/" class="button">Admin Login</a>
+            <a href="/tasks/" class="button">Public Task List</a>
+        </nav>
+    </header>
+    <main>
+        <div class="card">
+            <h2>Streamline Your Meetings</h2>
+            <p>TaskForge ingests Fireflies transcripts, extracts actionable items, lets humans verify them, and pushes everything to Monday.com—all in one seamless flow.</p>
+        </div>
+    </main>
+    <footer>
+        &copy; 2025 TaskForge
+    </footer>
+</body>
+</html> 
