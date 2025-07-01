@@ -32,6 +32,11 @@ SECRET_KEY = env("SECRET_KEY")
 # WARNING: Forced debug mode as per project requirement.
 DEBUG: bool = True
 ALLOWED_HOSTS: list[str] = env("ALLOWED_HOSTS")
+# Allow all Railway-generated domains to pass CSRF origin checks (HTTPS).
+CSRF_TRUSTED_ORIGINS: list[str] = env.list(
+    "CSRF_TRUSTED_ORIGINS",
+    default=["https://*.railway.app"],
+)
 
 # Application definition
 INSTALLED_APPS = [
