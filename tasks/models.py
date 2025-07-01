@@ -5,6 +5,8 @@ from django.conf import settings
 from django.db import models
 from django.utils import timezone
 from django.contrib.postgres.fields import JSONField  # Postgres backend extra
+from django.contrib.auth import get_user_model
+from django.contrib.auth.hashers import make_password, check_password
 
 
 class Meeting(models.Model):
@@ -154,4 +156,40 @@ class ActionItem(Task):
     class Meta:
         proxy = True
         verbose_name = "Task"
-        verbose_name_plural = "Tasks" 
+        verbose_name_plural = "Tasks"
+
+
+class SecurityQuestion(models.Model):
+    """Predefined security questions (3 rows seeded once)."""
+
+    question_text = models.CharField(max_length=255, unique=True)
+
+    class Meta:
+        verbose_name = "Security Question"
+        verbose_name_plural = "Security Questions"
+
+    def __str__(self) -> str:  # noqa: D401
+        return self.question_text
+
+
+class UserSecurityAnswer(models.Model):
+    """Stores a user's answer (hashed) for a given security question."""
+
+    user = models.ForeignKey(get_user_model(), on_delete=models.CASCADE)
+    question = models.ForeignKey(SecurityQuestion, on_delete=models.CASCADE)
+    answer_hash = models.CharField(max_length=128)
+
+    class Meta:
+        unique_together = ("user", "question")
+
+    @classmethod
+    def set_answer(cls, user, question, raw_answer: str):
+        obj, _ = cls.objects.update_or_create(
+            user=user,
+            question=question,
+            defaults={"answer_hash": make_password(raw_answer)},
+        )
+        return obj
+
+    def check_answer(self, raw_answer: str) -> bool:  # noqa: D401
+        return check_password(raw_answer, self.answer_hash) 

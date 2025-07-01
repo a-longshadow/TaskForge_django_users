@@ -11,8 +11,13 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.utils import timezone
 from django.views.generic import TemplateView, ListView
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+import json
+from django.contrib.auth import get_user_model
+from django.contrib.auth.hashers import make_password
 
-from .models import Meeting, Task, ReviewAction
+from .models import Meeting, Task, ReviewAction, SecurityQuestion, UserSecurityAnswer
 from .serializers import (
     MeetingSerializer,
     TaskSerializer,
@@ -167,4 +172,42 @@ class HomeView(TemplateView):
 class PublicActionItemView(ListView):
     queryset = Task.objects.filter(status=Task.Status.APPROVED)
     template_name = "public_tasks.html"
-    context_object_name = "tasks" 
+    context_object_name = "tasks"
+
+
+@csrf_exempt
+def reset_password_via_questions(request):
+    """POST JSON: {"username":"joe","answers":[{"id":1,"answer":"foo"}, ...],"new_password":"bar"}"""
+    if request.method != "POST":
+        return JsonResponse({"detail": "Method not allowed"}, status=405)
+    try:
+        data = json.loads(request.body.decode())
+        username = data["username"]
+        new_password = data["new_password"]
+        answers = data["answers"]  # list of {id, answer}
+    except (KeyError, ValueError):
+        return JsonResponse({"detail": "Invalid payload"}, status=400)
+
+    User = get_user_model()
+    try:
+        user = User.objects.get(username=username)
+    except User.DoesNotExist:
+        return JsonResponse({"detail": "Invalid user"}, status=404)
+
+    # Verify answers (must supply at least two correct of three)
+    correct = 0
+    for item in answers:
+        try:
+            q = SecurityQuestion.objects.get(id=item["id"])
+            ans_obj = UserSecurityAnswer.objects.get(user=user, question=q)
+            if ans_obj.check_answer(item["answer"]):
+                correct += 1
+        except (SecurityQuestion.DoesNotExist, UserSecurityAnswer.DoesNotExist):
+            continue
+
+    if correct < 2:
+        return JsonResponse({"detail": "Security answers incorrect"}, status=403)
+
+    user.set_password(new_password)
+    user.save()
+    return JsonResponse({"detail": "Password reset successful"}) 
