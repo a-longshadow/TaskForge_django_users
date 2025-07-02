@@ -1,4 +1,4 @@
-<!-- New streamlined public tasks UI -->
+<!-- Clean Gmail-style public tasks UI -->
 {% load static %}
 <!DOCTYPE html>
 <html>
@@ -10,30 +10,34 @@
     <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
 </head>
-<body class="min-h-screen bg-gradient-to-br from-violet-600 via-purple-600 to-indigo-700 text-white py-10 px-4">
-<div class="max-w-5xl mx-auto">
-    <h1 class="text-4xl font-semibold mb-6">Tasks Awaiting Review</h1>
-    <a href="/" class="underline mb-8 inline-block">← Home</a>
+<body class="bg-[#F5F7FB] min-h-screen text-gray-800">
+<div class="max-w-5xl mx-auto py-8 px-4">
+    <h1 class="text-3xl font-semibold mb-6">Tasks Awaiting Review</h1>
+    <a href="/" class="text-blue-600 hover:underline mb-6 inline-block">← Home</a>
 
     {% regroup tasks by meeting as meeting_list %}
     {% for meeting in meeting_list %}
     <div class="mb-4">
-        <button type="button" class="w-full flex justify-between items-center bg-white/10 hover:bg-white/15 rounded-lg px-4 py-3 transition" onclick="document.getElementById('tasks-{{ meeting.grouper.id }}').classList.toggle('hidden')">
-            <span>{{ meeting.grouper.title }} – {{ meeting.grouper.date|date:"Y-m-d H:i" }} ({{ meeting.list|length }} tasks)</span>
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+        <button type="button" class="w-full flex justify-between items-center bg-white border border-gray-200 rounded-lg px-4 py-3 hover:bg-gray-50 transition" onclick="toggleTasks('{{ meeting.grouper.id }}')">
+            <span class="font-medium">{{ meeting.grouper.title }} – {{ meeting.grouper.date|date:"Y-m-d H:i" }} ({{ meeting.list|length }} tasks)</span>
+            <svg xmlns="http://www.w3.org/2000/svg" id="arrow-{{ meeting.grouper.id }}" class="h-5 w-5 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
         </button>
-        <div id="tasks-{{ meeting.grouper.id }}" class="space-y-3 mt-3 hidden">
+        <div id="tasks-{{ meeting.grouper.id }}" class="hidden space-y-3 mt-2">
             {% for t in meeting.list %}
-            <div id="task-{{ t.id }}" class="bg-white/5 rounded-lg p-4 shadow flex flex-col gap-2">
-                <textarea class="w-full bg-transparent border border-white/20 rounded p-2 focus:outline-none focus:ring-2 focus:ring-purple-400" rows="2" name="new_brief_description" hx-patch="/api/tasks/{{ t.id }}/edit/?confirm=true" hx-trigger="blur changed delay:500ms" hx-target="#task-{{ t.id }}" hx-swap="outerHTML">{{ t.brief_description }}</textarea>
-                <div class="text-sm opacity-90 flex flex-wrap gap-4">
-                    <span>Assignees: {{ t.assignee_names|default:"—" }}</span>
-                    <span>Due: {{ t.date_expected }}</span>
-                    <span>Priority: {{ t.priority }}</span>
+            <div id="task-{{ t.id }}" class="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+                <div class="flex justify-between items-start">
+                    <p class="font-semibold max-w-xl" id="title-{{ t.id }}">{{ t.task_item|truncatechars:80 }}</p>
+                    <div class="flex gap-2">
+                        <button class="bg-green-600 text-white text-sm px-3 py-1 rounded hover:bg-green-700" hx-post="/api/tasks/{{ t.id }}/approve/?confirm=true" hx-swap="delete" hx-target="#task-{{ t.id }}">Approve</button>
+                        <button class="bg-red-600 text-white text-sm px-3 py-1 rounded hover:bg-red-700" onclick="openRejectModal('{{ t.id }}')">Reject</button>
+                    </div>
                 </div>
-                <div class="flex gap-2 mt-1">
-                    <button class="bg-green-500 hover:bg-green-600 text-sm px-3 py-1 rounded" hx-post="/api/tasks/{{ t.id }}/approve/?confirm=true" hx-swap="delete" hx-target="#task-{{ t.id }}">Approve</button>
-                    <button class="bg-red-500 hover:bg-red-600 text-sm px-3 py-1 rounded" onclick="promptReject('{{ t.id }}')">Reject</button>
+                <div id="desc-wrapper-{{ t.id }}" class="mt-2">
+                    <p id="desc-p-{{ t.id }}">{{ t.brief_description }}</p>
+                </div>
+                <div class="text-xs text-gray-500 mt-2">Assignees: {{ t.assignee_names|default:"—" }} · Due: {{ t.date_expected }} · Priority: {{ t.priority }}</div>
+                <div class="mt-2 flex gap-2">
+                    <button id="edit-btn-{{ t.id }}" class="bg-gray-100 text-sm px-3 py-1 rounded hover:bg-gray-200" onclick="enterEdit('{{ t.id }}')">Edit</button>
                 </div>
             </div>
             {% endfor %}
@@ -44,19 +48,90 @@
     {% endfor %}
 </div>
 
+<!-- Reject Modal -->
+<div id="reject-modal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50">
+    <div class="bg-white rounded-lg shadow-lg w-full max-w-md p-6">
+        <h2 class="text-lg font-semibold mb-2">Reject Task</h2>
+        <textarea id="reject-reason" rows="4" class="w-full border border-gray-300 rounded p-2 focus:outline-none"></textarea>
+        <p class="text-xs text-gray-500 mt-1">Minimum 5 words.</p>
+        <div class="mt-4 flex justify-end gap-2">
+            <button class="bg-gray-100 px-4 py-1 rounded hover:bg-gray-200" onclick="closeRejectModal()">Cancel</button>
+            <button id="reject-submit" class="bg-red-600 text-white px-4 py-1 rounded hover:bg-red-700">Submit</button>
+        </div>
+    </div>
+</div>
+
 <script>
-function promptReject(taskId) {
-  const reason = prompt('Please provide a reason (min 10 words)');
-  if (!reason || reason.trim().split(/\s+/).length < 10) {
-    alert('Rejection reason must be at least 10 words.');
-    return;
-  }
-  htmx.ajax('POST', `/api/tasks/${taskId}/reject/?confirm=true`, {target:`#task-${taskId}`, swap:'delete', values:{reason}})
+function toggleTasks(id) {
+  const el = document.getElementById('tasks-' + id);
+  const arrow = document.getElementById('arrow-' + id);
+  el.classList.toggle('hidden');
+  arrow.classList.toggle('rotate-180');
 }
 
+// Edit flow
+function enterEdit(id) {
+  const p = document.getElementById('desc-p-' + id);
+  const wrapper = document.getElementById('desc-wrapper-' + id);
+  const textarea = document.createElement('textarea');
+  textarea.className = 'w-full border border-gray-300 rounded p-2 focus:outline-none';
+  textarea.rows = 4;
+  textarea.value = p.textContent.trim();
+  textarea.id = 'textarea-' + id;
+  wrapper.innerHTML = '';
+  wrapper.appendChild(textarea);
+  // change buttons
+  document.getElementById('edit-btn-' + id).classList.add('hidden');
+  const saveBtn = document.createElement('button');
+  saveBtn.textContent = 'Save';
+  saveBtn.className = 'bg-blue-600 text-white text-sm px-3 py-1 rounded hover:bg-blue-700';
+  saveBtn.onclick = () => saveEdit(id);
+  const cancelBtn = document.createElement('button');
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.className = 'bg-gray-100 text-sm px-3 py-1 rounded hover:bg-gray-200';
+  cancelBtn.onclick = () => cancelEdit(id, p.textContent.trim());
+  p.parentElement.parentElement.querySelector('.mt-2.flex').append(saveBtn, cancelBtn);
+}
+
+function saveEdit(id) {
+  const textarea = document.getElementById('textarea-' + id);
+  const newDesc = textarea.value.trim();
+  if (!newDesc) { alert('Description cannot be empty'); return; }
+  htmx.ajax('PATCH', `/api/tasks/${id}/edit/?confirm=true`, { values:{ new_brief_description: newDesc }, target:`#task-${id}`, swap:'outerHTML' });
+}
+
+function cancelEdit(id, original) {
+  const wrapper = document.getElementById('desc-wrapper-' + id);
+  wrapper.innerHTML = `<p id="desc-p-${id}">${original}</p>`;
+  const controls = document.getElementById('task-' + id).querySelector('.mt-2.flex');
+  controls.querySelectorAll('button').forEach(btn=>btn.remove());
+  document.getElementById('edit-btn-' + id).classList.remove('hidden');
+}
+
+// Reject modal
+let currentRejectId = null;
+function openRejectModal(id) {
+  currentRejectId = id;
+  document.getElementById('reject-reason').value = '';
+  document.getElementById('reject-modal').classList.remove('hidden');
+}
+function closeRejectModal() {
+  document.getElementById('reject-modal').classList.add('hidden');
+  currentRejectId = null;
+}
+
+document.getElementById('reject-submit').addEventListener('click', () => {
+  const reason = document.getElementById('reject-reason').value.trim();
+  if (reason.split(/\s+/).length < 5) { alert('Reason must be at least 5 words.'); return; }
+  const id = currentRejectId;
+  closeRejectModal();
+  htmx.ajax('POST', `/api/tasks/${id}/reject/?confirm=true`, { values:{reason}, target:`#task-${id}`, swap:'delete' });
+});
+
+// Toasts
 document.body.addEventListener('htmx:afterRequest', evt => {
   if (evt.detail.xhr.status === 200) {
-    Toastify({text:'Success',duration:2000,gravity:'bottom',backgroundColor:'#22c55e'}).showToast();
+    Toastify({ text:'Success', duration:2000, gravity:'bottom', backgroundColor:'#0A57FF' }).showToast();
   }
 });
 </script>

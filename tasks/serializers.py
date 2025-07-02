@@ -72,8 +72,8 @@ class TaskActionSerializer(serializers.Serializer):
             raise serializers.ValidationError("A reason is required when rejecting a task.")
         if action == "reject":
             words = attrs.get("reason", "").strip().split()
-            if len(words) < 10:
-                raise serializers.ValidationError("Rejection reason must be at least 10 words.")
+            if len(words) < 5:
+                raise serializers.ValidationError("Rejection reason must be at least 5 words.")
         return attrs
 
 
