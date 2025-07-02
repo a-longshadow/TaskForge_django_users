@@ -212,10 +212,12 @@ class PublicActionItemView(ListView):
     context_object_name = "tasks"
 
     def get_queryset(self):
-        now = timezone.now()
+        from datetime import timedelta
+
+        cutoff = timezone.now() - timedelta(hours=24)
+        # TODO: implement per-row expires_after_h using database functions (Postgres) if needed.
         return (
-            Task.objects.filter(reviewed_at__isnull=True)
-            .extra(where=["created_at > (now() - (interval '1 hour' * expires_after_h))"])
+            Task.objects.filter(reviewed_at__isnull=True, created_at__gt=cutoff)
             .select_related("meeting")
         )
 

@@ -3,7 +3,7 @@ command = "pip install -r requirements.txt && python manage.py migrate"
 
 [deploy]
 command = "gunicorn taskforge.wsgi --bind 0.0.0.0:$PORT"
-
+ 
 [env]
   SECRET_KEY = "${{SECRET_KEY}}"
   MONDAY_API_KEY = "${{MONDAY_API_KEY}}"
