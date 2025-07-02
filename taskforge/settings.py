@@ -171,5 +171,13 @@ LOGGING = {
 # ---------------------------------------------------------------------------
 # MONDAY.COM API – token pulled from env (integration service uses)
 # ---------------------------------------------------------------------------
+# Secrets come only from env/AppSetting; board/group/map have safe code defaults.
 MONDAY_API_KEY: str | None = env("MONDAY_API_KEY", default=None)
-MONDAY_BOARD_ID: str | None = env("MONDAY_BOARD_ID", default=None) 
+
+# Safe-to-commit defaults (can be overridden by env or AppSetting)
+MONDAY_BOARD_ID: str | None = env("MONDAY_BOARD_ID", default="9212659997")
+MONDAY_GROUP_ID: str | None = env("MONDAY_GROUP_ID", default="group_mkqyryrz")
+MONDAY_COLUMN_MAP: str = env(
+    "MONDAY_COLUMN_MAP",
+    default='{"team_member":"text_mkr7jgkp","email":"text_mkr0hqsb","priority":"status_1","status":"status","due_date":"date5","brief_description":"long_text"}',
+) 
