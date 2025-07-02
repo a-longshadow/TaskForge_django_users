@@ -24,7 +24,6 @@ from .serializers import (
     TaskActionSerializer,
     ReviewActionSerializer,
 )
-from .permissions import IsTaskReviewer
 from .services import create_monday_item
 
 logger = logging.getLogger(__name__)
@@ -39,11 +38,12 @@ class MeetingViewSet(mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.
 
 
 class TaskViewSet(viewsets.ModelViewSet):
-    """CRUD + approve/reject for tasks."""
+    """CRUD + approve/reject for tasks (publicly accessible)."""
 
     queryset = Task.objects.select_related("meeting")
     serializer_class = TaskSerializer
-    permission_classes = [IsTaskReviewer]
+    permission_classes = [AllowAny]
+    authentication_classes = []  # Disable SessionAuthentication to avoid CSRF for public calls
 
     def get_queryset(self):
         qs = super().get_queryset()
