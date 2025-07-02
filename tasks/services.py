@@ -16,7 +16,10 @@ MONDAY_API_URL = "https://api.monday.com/v2"  # GraphQL endpoint
 
 
 def _get_setting(name: str) -> str | None:
-    return AppSetting.get(name) or os.getenv(name) or getattr(settings, name, None)
+    val = AppSetting.get(name) or os.getenv(name) or getattr(settings, name, None)
+    if isinstance(val, str):
+        return val.strip()
+    return val
 
 
 def _post_monday(query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -26,9 +29,11 @@ def _post_monday(query: str, variables: dict[str, Any] | None = None) -> dict[st
         return {}
 
     headers = {
-        "Authorization": api_key,
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
+        "API-Version": "2023-10"  # Required for project tokens
     }
+
     resp = requests.post(MONDAY_API_URL, json={"query": query, "variables": variables}, headers=headers, timeout=15)
     resp.raise_for_status()
     data = resp.json()
@@ -63,23 +68,31 @@ def create_monday_item(task, board_id: str | None = None) -> str | None:
     if _safe(column_map.get("priority")):
         column_values[column_map["priority"]] = {"label": task.priority}
     if _safe(column_map.get("status")):
-        column_values[column_map["status"]] = {"label": task.status.title()}
+        # Map Django task status to Monday.com status options
+        status_map = {
+            "pending": "To Do",
+            "approved": "Approved",
+            "rejected": "Deprioritized"
+        }
+        monday_status = status_map.get(task.status, "To Do")
+        column_values[column_map["status"]] = {"label": monday_status}
     if _safe(column_map.get("due_date")):
         column_values[column_map["due_date"]] = {"date": str(task.date_expected)}
     if _safe(column_map.get("brief_description")):
         column_values[column_map["brief_description"]] = task.brief_description[:2000]
 
+    # Mutation exactly matching the n8n production flow
     query = """
-        mutation ($board:Int!, $group:String, $name:String!, $cols: JSON!) {
-          create_item (board_id:$board, group_id:$group, item_name:$name, column_values:$cols) { id }
-        }
+    mutation ($board:ID!, $group:String, $name:String!, $cols:JSON!){
+      create_item(board_id:$board, group_id:$group, item_name:$name, column_values:$cols){ id }
+    }
     """
 
     variables = {
-        "board": int(board_id),
+        "board": board_id,  # Send as string for ID! type
         "group": group_id,
         "name": task.task_item[:100],
-        "cols": json.dumps(column_values),
+        "cols": json.dumps(column_values)  # JSON-encode once
     }
 
     try:

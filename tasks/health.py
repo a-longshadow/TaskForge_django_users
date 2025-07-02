@@ -12,7 +12,7 @@ from django.utils.timezone import now
 from django.core.cache import cache
 
 # Monday probe utilities
-from tasks.services import _post_monday  # type: ignore
+from tasks.services import _post_monday, _get_setting  # type: ignore
 
 
 def _check_database() -> dict[str, str]:
@@ -39,14 +39,15 @@ def _check_migrations() -> dict[str, str]:
 def health_view(request):  # noqa: D401
     """Return JSON with app, DB, and migrations status."""
 
-    # Mondays status cached for 60s
+    # Monday status cached for 60s
     monday_cache = cache.get("health_monday")
     if monday_cache is None:
-        token_present = bool(os.getenv("MONDAY_API_KEY"))
+        token_present = bool(_get_setting("MONDAY_API_KEY"))
         status_msg = "missing-token"
         if token_present:
             try:
-                data = _post_monday("query{ me { id } }", None)
+                # Simple query to check if API key is valid
+                data = _post_monday("query { me { id } }")
                 if data.get("errors"):
                     status_msg = data["errors"][0].get("message", "error")
                 else:

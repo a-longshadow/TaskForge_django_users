@@ -111,7 +111,8 @@ class TaskViewSet(viewsets.ModelViewSet):
             item_id = create_monday_item(task)
             if item_id:
                 task.monday_item_id = item_id
-                task.save(update_fields=["monday_item_id"])
+                task.posted_to_monday = True
+                task.save(update_fields=["monday_item_id", "posted_to_monday"])
 
         return Response(TaskSerializer(task, context={"request": request}).data)
 
@@ -121,7 +122,51 @@ class TaskViewSet(viewsets.ModelViewSet):
 
     @action(methods=["post"], detail=True, url_path="reject")
     def reject(self, request, pk=None):
-        return self._handle_simple_action(request, pk, action="reject")
+        """Reject a task with a reason."""
+        task = self.get_object()
+        
+        # Validate the reason
+        reason = request.data.get("reason", "").strip()
+        if not reason:
+            return Response(
+                {"detail": "A reason is required when rejecting a task."}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        words = reason.split()
+        if len(words) < 5:
+            return Response(
+                {"detail": "Rejection reason must be at least 5 words."}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        # Confirm parameter required
+        confirm = request.query_params.get("confirm") == "true"
+        if not confirm:
+            return Response(
+                {
+                    "message": "Preview. Resend with ?confirm=true to apply.",
+                    "reason": reason,
+                },
+                status=status.HTTP_202_ACCEPTED,
+            )
+            
+        # Process the rejection
+        with transaction.atomic():
+            task.status = Task.Status.REJECTED
+            task.reviewed_at = timezone.now()
+            task.rejected_reason = reason
+            task.save()
+            
+            # Log action
+            ReviewAction.objects.create(
+                task=task,
+                user=request.user if request.user.is_authenticated else None,
+                action=ReviewAction.Action.REJECT,
+                reason=reason,
+            )
+            
+        return Response(TaskSerializer(task, context={"request": request}).data)
 
     @action(methods=["patch"], detail=True, url_path="edit")
     def edit(self, request, pk=None):

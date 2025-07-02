@@ -29,25 +29,23 @@
                     <p class="text-lg font-semibold text-gray-900 max-w-xl" id="title-{{ t.id }}">{{ t.task_item|truncatechars:80 }}</p>
                     <div class="flex gap-2">
                         <button class="bg-green-600 text-white text-sm px-3 py-1 rounded hover:bg-green-700" onclick="approveTask('{{ t.id }}')">Approve</button>
-                        <button class="bg-red-600 text-white text-sm px-3 py-1 rounded hover:bg-red-700" onclick="toggleDeclineForm('{{ t.id }}')">Decline</button>
+                        <button class="bg-red-600 text-white text-sm px-3 py-1 rounded hover:bg-red-700" onclick="openDeclineModal('{{ t.id }}')">Decline</button>
                     </div>
                 </div>
                 <div class="mt-1 text-sm font-medium flex flex-wrap gap-4 items-center">
                     <span>Assignees: {{ t.assignee_names|default:"—" }}</span>
                     <span>Due: {{ t.date_expected }}</span>
                     <span class="flex items-center gap-1">Priority: <span class="px-2 py-0.5 rounded-full text-white text-xs {% if t.priority == 'High' %}bg-red-600{% elif t.priority == 'Medium' %}bg-amber-500{% else %}bg-gray-500{% endif %}">{{ t.priority }}</span></span>
+                    {% if t.posted_to_monday %}
+                    <span class="px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 text-xs flex items-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                        </svg>
+                        Posted to Monday
+                    </span>
+                    {% endif %}
                 </div>
                 <p class="mt-2 text-sm">{{ t.brief_description }}</p>
-
-                <!-- Inline decline form -->
-                <div id="decline-form-{{ t.id }}" class="mt-3 hidden">
-                    <textarea id="decline-reason-{{ t.id }}" rows="3" class="w-full border border-gray-300 rounded p-2 text-sm" placeholder="Reason (min 5 words)"></textarea>
-                    <p id="decline-hint-{{ t.id }}" class="text-xs text-gray-500 mt-1">Minimum 5 words.</p>
-                    <div class="mt-2 flex gap-2">
-                        <button class="bg-gray-100 text-sm px-3 py-1 rounded hover:bg-gray-200" onclick="toggleDeclineForm('{{ t.id }}')">Cancel</button>
-                        <button class="bg-red-600 text-white text-sm px-3 py-1 rounded hover:bg-red-700" onclick="submitDecline('{{ t.id }}')">Submit</button>
-                    </div>
-                </div>
             </div>
             {% endfor %}
         </div>
@@ -57,7 +55,38 @@
     {% endfor %}
 </div>
 
+<!-- Decline Modal -->
+<div id="decline-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center hidden">
+    <div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+        <h3 class="text-lg font-semibold mb-4">Decline Task</h3>
+        <p class="text-sm text-gray-600 mb-3">Please provide a reason for declining this task (minimum 5 words):</p>
+        
+        <textarea id="decline-reason-modal" rows="4" class="w-full border border-gray-300 rounded p-2 text-sm" placeholder="Enter your reason here..."></textarea>
+        <p id="decline-hint-modal" class="text-xs text-gray-500 mt-1">Minimum 5 words required.</p>
+        
+        <div class="flex justify-end gap-3 mt-4">
+            <button class="bg-gray-100 text-gray-800 px-4 py-2 rounded hover:bg-gray-200" onclick="closeDeclineModal()">Cancel</button>
+            <button id="decline-submit-btn" class="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700">Submit</button>
+        </div>
+    </div>
+</div>
+
+<!-- Approve Modal -->
+<div id="approve-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center hidden">
+    <div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+        <h3 class="text-lg font-semibold mb-4">Approve Task</h3>
+        <p class="text-sm text-gray-600 mb-3">This task will be approved and posted to Monday.com.</p>
+        
+        <div class="flex justify-end gap-3 mt-4">
+            <button class="bg-gray-100 text-gray-800 px-4 py-2 rounded hover:bg-gray-200" onclick="closeApproveModal()">Cancel</button>
+            <button id="approve-submit-btn" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">Approve</button>
+        </div>
+    </div>
+</div>
+
 <script>
+let currentTaskId = null;
+
 function toggleTasks(id) {
   const el = document.getElementById('tasks-' + id);
   const arrow = document.getElementById('arrow-' + id);
@@ -65,32 +94,125 @@ function toggleTasks(id) {
   arrow.classList.toggle('rotate-180');
 }
 
-function toggleDeclineForm(id){
-  document.getElementById('decline-form-'+id).classList.toggle('hidden');
-  document.getElementById('decline-hint-'+id).textContent='Minimum 5 words.';
+function openDeclineModal(id) {
+  currentTaskId = id;
+  document.getElementById('decline-modal').classList.remove('hidden');
+  document.getElementById('decline-reason-modal').value = '';
+  document.getElementById('decline-hint-modal').textContent = 'Minimum 5 words required.';
+  document.getElementById('decline-reason-modal').focus();
+  
+  // Set up the submit button event
+  document.getElementById('decline-submit-btn').onclick = submitDecline;
 }
 
-function submitDecline(id){
-  const reasonEl = document.getElementById('decline-reason-'+id);
+function closeDeclineModal() {
+  document.getElementById('decline-modal').classList.add('hidden');
+  currentTaskId = null;
+}
+
+function openApproveModal(id) {
+  currentTaskId = id;
+  document.getElementById('approve-modal').classList.remove('hidden');
+  
+  // Set up the submit button event
+  document.getElementById('approve-submit-btn').onclick = submitApprove;
+}
+
+function closeApproveModal() {
+  document.getElementById('approve-modal').classList.add('hidden');
+  currentTaskId = null;
+}
+
+function submitDecline() {
+  if (!currentTaskId) return;
+  
+  const reasonEl = document.getElementById('decline-reason-modal');
   const reason = reasonEl.value.trim();
-  if(reason.split(/\s+/).length < 5){
-    document.getElementById('decline-hint-'+id).textContent='Reason must be at least 5 words.';
+  
+  if (reason.split(/\s+/).length < 5) {
+    document.getElementById('decline-hint-modal').textContent = 'Reason must be at least 5 words.';
+    document.getElementById('decline-hint-modal').classList.add('text-red-500');
     return;
   }
-  htmx.ajax('POST', `/api/tasks/${id}/reject/?confirm=true`, {values:{reason}, target:`#task-${id}`, swap:'delete', headers:{'X-Public-UI':'true'}});
+  
+  htmx.ajax('POST', `/api/tasks/${currentTaskId}/reject/?confirm=true`, {
+    values: {reason}, 
+    target: `#task-${currentTaskId}`, 
+    swap: 'delete', 
+    headers: {'X-Public-UI': 'true'}
+  });
+  
+  closeDeclineModal();
 }
 
-function approveTask(id){
-  if(!confirm('Approve this task?')) return;
-  htmx.ajax('POST', `/api/tasks/${id}/approve/?confirm=true`, {headers:{'X-Public-UI':'true'}, target:`#task-${id}`, swap:'delete'});
+function submitApprove() {
+  if (!currentTaskId) return;
+  
+  htmx.ajax('POST', `/api/tasks/${currentTaskId}/approve/?confirm=true`, {
+    headers: {'X-Public-UI': 'true'}, 
+    target: `#task-${currentTaskId}`, 
+    swap: 'delete'
+  });
+  
+  closeApproveModal();
 }
+
+function approveTask(id) {
+  openApproveModal(id);
+}
+
+// Close modals if clicking outside
+document.getElementById('decline-modal').addEventListener('click', function(e) {
+  if (e.target === this) {
+    closeDeclineModal();
+  }
+});
+
+document.getElementById('approve-modal').addEventListener('click', function(e) {
+  if (e.target === this) {
+    closeApproveModal();
+  }
+});
+
+// Handle Escape key
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    if (!document.getElementById('decline-modal').classList.contains('hidden')) {
+      closeDeclineModal();
+    }
+    if (!document.getElementById('approve-modal').classList.contains('hidden')) {
+      closeApproveModal();
+    }
+  }
+});
 
 // Toasts
 document.body.addEventListener('htmx:afterRequest', evt => {
   if (evt.detail.xhr.status === 200) {
-    Toastify({ text:'Success', duration:2000, gravity:'bottom', backgroundColor:'#0A57FF' }).showToast();
+    const isApprove = evt.detail.requestConfig.path.includes('/approve/');
+    const isReject = evt.detail.requestConfig.path.includes('/reject/');
+    
+    let message = 'Success';
+    if (isApprove) message = 'Task approved and sent to Monday.com';
+    if (isReject) message = 'Task declined successfully';
+    
+    Toastify({ 
+      text: message, 
+      duration: 3000, 
+      gravity: 'bottom', 
+      position: 'center',
+      backgroundColor: isApprove ? '#10B981' : isReject ? '#6B7280' : '#0A57FF'
+    }).showToast();
+  } else if (evt.detail.xhr.status >= 400) {
+    Toastify({ 
+      text: 'Error: ' + (evt.detail.xhr.responseText || 'Something went wrong'), 
+      duration: 3000, 
+      gravity: 'bottom',
+      position: 'center', 
+      backgroundColor: '#EF4444'
+    }).showToast();
   }
 });
 </script>
 </body>
-</html> 
+</html>
