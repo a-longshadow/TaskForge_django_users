@@ -32,12 +32,11 @@
                         <button class="bg-red-600 text-white text-sm px-3 py-1 rounded hover:bg-red-700" onclick="openRejectModal('{{ t.id }}')">Reject</button>
                     </div>
                 </div>
-                <div id="desc-wrapper-{{ t.id }}" class="mt-2">
-                    <p id="desc-p-{{ t.id }}">{{ t.brief_description }}</p>
-                </div>
-                <div class="text-xs text-gray-500 mt-2">Assignees: {{ t.assignee_names|default:"—" }} · Due: {{ t.date_expected }} · Priority: {{ t.priority }}</div>
-                <div class="mt-2 flex gap-2">
-                    <button id="edit-btn-{{ t.id }}" class="bg-gray-100 text-sm px-3 py-1 rounded hover:bg-gray-200" onclick="enterEdit('{{ t.id }}')">Edit</button>
+                <p class="mt-2 text-sm">{{ t.brief_description }}</p>
+                <div class="mt-2 text-sm font-medium flex flex-wrap gap-4 items-center">
+                    <span>Assignees: {{ t.assignee_names|default:"—" }}</span>
+                    <span>Due: {{ t.date_expected }}</span>
+                    <span class="flex items-center gap-1">Priority: <span class="px-2 py-0.5 rounded-full text-white text-xs {% if t.priority == 'High' %}bg-red-600{% elif t.priority == 'Medium' %}bg-amber-500{% else %}bg-gray-500{% endif %}">{{ t.priority }}</span></span>
                 </div>
             </div>
             {% endfor %}
@@ -53,7 +52,7 @@
     <div class="bg-white rounded-lg shadow-lg w-full max-w-md p-6">
         <h2 class="text-lg font-semibold mb-2">Reject Task</h2>
         <textarea id="reject-reason" rows="4" class="w-full border border-gray-300 rounded p-2 focus:outline-none"></textarea>
-        <p class="text-xs text-gray-500 mt-1">Minimum 5 words.</p>
+        <p id="reject-hint" class="text-xs text-gray-500 mt-1">Minimum 5 words.</p>
         <div class="mt-4 flex justify-end gap-2">
             <button class="bg-gray-100 px-4 py-1 rounded hover:bg-gray-200" onclick="closeRejectModal()">Cancel</button>
             <button id="reject-submit" class="bg-red-600 text-white px-4 py-1 rounded hover:bg-red-700">Submit</button>
@@ -69,50 +68,12 @@ function toggleTasks(id) {
   arrow.classList.toggle('rotate-180');
 }
 
-// Edit flow
-function enterEdit(id) {
-  const p = document.getElementById('desc-p-' + id);
-  const wrapper = document.getElementById('desc-wrapper-' + id);
-  const textarea = document.createElement('textarea');
-  textarea.className = 'w-full border border-gray-300 rounded p-2 focus:outline-none';
-  textarea.rows = 4;
-  textarea.value = p.textContent.trim();
-  textarea.id = 'textarea-' + id;
-  wrapper.innerHTML = '';
-  wrapper.appendChild(textarea);
-  // change buttons
-  document.getElementById('edit-btn-' + id).classList.add('hidden');
-  const saveBtn = document.createElement('button');
-  saveBtn.textContent = 'Save';
-  saveBtn.className = 'bg-blue-600 text-white text-sm px-3 py-1 rounded hover:bg-blue-700';
-  saveBtn.onclick = () => saveEdit(id);
-  const cancelBtn = document.createElement('button');
-  cancelBtn.textContent = 'Cancel';
-  cancelBtn.className = 'bg-gray-100 text-sm px-3 py-1 rounded hover:bg-gray-200';
-  cancelBtn.onclick = () => cancelEdit(id, p.textContent.trim());
-  p.parentElement.parentElement.querySelector('.mt-2.flex').append(saveBtn, cancelBtn);
-}
-
-function saveEdit(id) {
-  const textarea = document.getElementById('textarea-' + id);
-  const newDesc = textarea.value.trim();
-  if (!newDesc) { alert('Description cannot be empty'); return; }
-  htmx.ajax('PATCH', `/api/tasks/${id}/edit/?confirm=true`, { values:{ new_brief_description: newDesc }, target:`#task-${id}`, swap:'outerHTML' });
-}
-
-function cancelEdit(id, original) {
-  const wrapper = document.getElementById('desc-wrapper-' + id);
-  wrapper.innerHTML = `<p id="desc-p-${id}">${original}</p>`;
-  const controls = document.getElementById('task-' + id).querySelector('.mt-2.flex');
-  controls.querySelectorAll('button').forEach(btn=>btn.remove());
-  document.getElementById('edit-btn-' + id).classList.remove('hidden');
-}
-
 // Reject modal
 let currentRejectId = null;
 function openRejectModal(id) {
   currentRejectId = id;
   document.getElementById('reject-reason').value = '';
+  document.getElementById('reject-hint').textContent = 'Minimum 5 words.';
   document.getElementById('reject-modal').classList.remove('hidden');
 }
 function closeRejectModal() {
@@ -122,7 +83,7 @@ function closeRejectModal() {
 
 document.getElementById('reject-submit').addEventListener('click', () => {
   const reason = document.getElementById('reject-reason').value.trim();
-  if (reason.split(/\s+/).length < 5) { alert('Reason must be at least 5 words.'); return; }
+  if (reason.split(/\s+/).length < 5) { document.getElementById('reject-hint').textContent='Reason must be at least 5 words.'; return; }
   const id = currentRejectId;
   closeRejectModal();
   htmx.ajax('POST', `/api/tasks/${id}/reject/?confirm=true`, { values:{reason}, target:`#task-${id}`, swap:'delete' });
