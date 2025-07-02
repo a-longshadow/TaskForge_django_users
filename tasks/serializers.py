@@ -32,6 +32,9 @@ class TaskSerializer(serializers.ModelSerializer):
             "status",
             "monday_item_id",
             "posted_to_monday",
+            "reviewed_at",
+            "rejected_reason",
+            "expires_after_h",
             "source_payload",
             "created_at",
             "updated_at",
@@ -40,6 +43,7 @@ class TaskSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "status",
             "monday_item_id",
+            "reviewed_at",
             "created_at",
             "updated_at",
         ]
@@ -59,12 +63,17 @@ class TaskActionSerializer(serializers.Serializer):
     action = serializers.ChoiceField(choices=ACTION_CHOICES)
     reason = serializers.CharField(required=False, allow_blank=True)
     new_brief_description = serializers.CharField(required=False, allow_blank=True)
+    description = serializers.CharField(required=False, allow_blank=True)
     new_date_expected = serializers.DateField(required=False)
 
     def validate(self, attrs):
         action = attrs.get("action")
         if action == "reject" and not attrs.get("reason"):
             raise serializers.ValidationError("A reason is required when rejecting a task.")
+        if action == "reject":
+            words = attrs.get("reason", "").strip().split()
+            if len(words) < 10:
+                raise serializers.ValidationError("Rejection reason must be at least 10 words.")
         return attrs
 
 

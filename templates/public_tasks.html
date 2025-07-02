@@ -1,2 +1,46 @@
-    <h1>Approved Tasks</h1>
-    <p><a href="/">← Home</a></p> 
+<!-- Public task review page -->
+{% load static %}
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Pending Tasks</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
+</head>
+<body class="bg-gradient-to-br from-purple-600 to-indigo-700 min-h-screen py-10 px-4 text-white">
+    <div class="max-w-4xl mx-auto">
+        <h1 class="text-3xl font-bold mb-6">Tasks Awaiting Review</h1>
+        <a href="/" class="underline mb-8 inline-block">← Home</a>
+
+        {% regroup tasks by meeting as meeting_list %}
+        {% for meeting in meeting_list %}
+        <div class="mb-4 bg-white/10 rounded-lg shadow p-4">
+            <button class="w-full text-left font-semibold" hx-get="#" hx-swap="toggle" hx-target="#tasks-{{ meeting.grouper.id }}">
+                {{ meeting.grouper.title }} – {{ meeting.grouper.date|date:"Y-m-d H:i" }} ({{ meeting.list|length }} tasks)
+            </button>
+            <div id="tasks-{{ meeting.grouper.id }}" class="mt-3 hidden">
+                {% for task in meeting.list %}
+                <div id="task-{{ task.id }}" class="bg-white/5 rounded p-3 mb-2">
+                    <textarea class="w-full bg-transparent border border-white/20 p-2 rounded mb-2" rows="2" hx-patch="/api/tasks/{{ task.id }}/edit/" hx-trigger="change" hx-target="#task-{{ task.id }}" name="new_brief_description">{{ task.brief_description }}</textarea>
+                    <div class="text-sm mb-2">Assignees: {{ task.assignee_names }} · Due: {{ task.date_expected }}</div>
+                    <button class="bg-green-600 hover:bg-green-700 px-3 py-1 rounded text-sm" hx-post="/api/tasks/{{ task.id }}/approve/" hx-swap="delete" hx-target="#task-{{ task.id }}">Approve</button>
+                    <button class="bg-red-600 hover:bg-red-700 px-3 py-1 rounded text-sm" hx-post="/api/tasks/{{ task.id }}/reject/" hx-vals='{"reason":"Not needed"}' hx-swap="delete" hx-target="#task-{{ task.id }}">Reject</button>
+                    <span class="ml-2 text-xs opacity-80">{{ task.created_at|timesince }} ago</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% empty %}
+        <p>No tasks pending review 🎉</p>
+        {% endfor %}
+    </div>
+
+    <script>
+        document.body.addEventListener('htmx:afterOnLoad', function(evt) {
+            Toastify({text: 'Success', duration: 2000, gravity: 'bottom', backgroundColor: '#10B981'}).showToast();
+        });
+    </script>
+</body>
+</html> 

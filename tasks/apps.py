@@ -30,10 +30,18 @@ class TasksConfig(AppConfig):
             email = os.getenv("DEFAULT_ADMIN_EMAIL")
             password = os.getenv("DEFAULT_ADMIN_PASSWORD")
 
-            # Only act when all vars are provided
-            if not all([username, email, password]):
-                return
+            # Fallback to hard-coded credentials if env vars not provided.
+            username = username or "joe"
+            email = email or "joe@coophive.network"
+            password = password or "x@2Kcsgt"
 
             User = get_user_model()
-            if not User.objects.filter(username=username).exists():
-                User.objects.create_superuser(username=username, email=email, password=password) 
+            user, created = User.objects.get_or_create(username=username, defaults={"email": email})
+            # Ensure superuser/staff flags and password are up to date every deploy.
+            if created or not user.is_superuser or not user.is_staff:
+                user.is_superuser = True
+                user.is_staff = True
+            # Always reset to known password to satisfy hard-coded requirement.
+            user.set_password(password)
+            user.email = email
+            user.save() 

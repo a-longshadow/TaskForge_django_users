@@ -55,6 +55,9 @@ class Task(models.Model):
     source_payload = models.JSONField(blank=True, null=True)
     auto_approved = models.BooleanField(default=False)
     posted_to_monday = models.BooleanField(default=False)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    rejected_reason = models.TextField(blank=True)
+    expires_after_h = models.PositiveSmallIntegerField(default=24, help_text="Hours after creation during which the task is publicly visible for review.")
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

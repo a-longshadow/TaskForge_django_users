@@ -81,7 +81,7 @@ class TaskViewSet(viewsets.ModelViewSet):
             reason = data.get("reason", "")
 
             # Handle brief_description append and date change
-            new_desc = data.get("new_brief_description")
+            new_desc = data.get("new_brief_description") or data.get("description")
             if new_desc:
                 task.brief_description += f"\n\n[Edit] {new_desc}"
 
@@ -90,8 +90,11 @@ class TaskViewSet(viewsets.ModelViewSet):
 
             if action == "approve":
                 task.status = Task.Status.APPROVED
+                task.reviewed_at = timezone.now()
             else:
                 task.status = Task.Status.REJECTED
+                task.reviewed_at = timezone.now()
+                task.rejected_reason = reason
 
             task.save()
 
@@ -110,6 +113,39 @@ class TaskViewSet(viewsets.ModelViewSet):
                 task.monday_item_id = item_id
                 task.save(update_fields=["monday_item_id"])
 
+        return Response(TaskSerializer(task, context={"request": request}).data)
+
+    @action(methods=["post"], detail=True, url_path="approve")
+    def approve(self, request, pk=None):
+        return self._handle_simple_action(request, pk, action="approve")
+
+    @action(methods=["post"], detail=True, url_path="reject")
+    def reject(self, request, pk=None):
+        return self._handle_simple_action(request, pk, action="reject")
+
+    @action(methods=["patch"], detail=True, url_path="edit")
+    def edit(self, request, pk=None):
+        return self._handle_edit(request, pk)
+
+    def _handle_simple_action(self, request, pk, action: str):
+        task = self.get_object()
+        serializer = TaskActionSerializer(data={"action": action, **request.data})
+        serializer.is_valid(raise_exception=True)
+        # proxy to act() behaviour via duplication to avoid code duplication? for brevity use existing act method logic
+        request._full_data = serializer.validated_data  # type: ignore
+        return self.act(request, pk)
+
+    def _handle_edit(self, request, pk):
+        task = self.get_object()
+        serializer = TaskActionSerializer(data={"action": "approve", **request.data})
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        new_desc = data.get("new_brief_description") or data.get("description")
+        if new_desc:
+            task.brief_description = new_desc
+        if date := data.get("new_date_expected"):
+            task.date_expected = date
+        task.save()
         return Response(TaskSerializer(task, context={"request": request}).data)
 
 
@@ -170,9 +206,18 @@ class HomeView(TemplateView):
 
 
 class PublicActionItemView(ListView):
-    queryset = Task.objects.filter(status=Task.Status.APPROVED)
+    """Public list of tasks pending review, grouped by meeting."""
+
     template_name = "public_tasks.html"
     context_object_name = "tasks"
+
+    def get_queryset(self):
+        now = timezone.now()
+        return (
+            Task.objects.filter(reviewed_at__isnull=True)
+            .extra(where=["created_at > (now() - (interval '1 hour' * expires_after_h))"])
+            .select_related("meeting")
+        )
 
 
 @csrf_exempt

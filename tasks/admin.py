@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Meeting, Task, ReviewAction, PageLog, AppSetting, RawTranscript, ActionItem
+from .models import Meeting, Task, ReviewAction, PageLog, AppSetting, RawTranscript, ActionItem, SecurityQuestion, UserSecurityAnswer
 
 
 @admin.register(Meeting)
@@ -62,6 +62,16 @@ class AppSettingAdmin(admin.ModelAdmin):
 class RawTranscriptAdmin(admin.ModelAdmin):
     list_display = ("file_name", "meeting", "created_at")
     search_fields = ("file_name", "meeting__title")
+
+
+@admin.register(SecurityQuestion)
+class SecurityQuestionAdmin(admin.ModelAdmin):
+    list_display = ("question_text",)
+
+
+@admin.register(UserSecurityAnswer)
+class UserSecurityAnswerAdmin(admin.ModelAdmin):
+    list_display = ("user", "question")
 
 
 try:
