@@ -30,7 +30,33 @@ except admin.sites.NotRegistered:
 
 @admin.register(ActionItem)
 class ActionItemAdmin(BaseTaskAdmin):
-    pass
+    list_display = BaseTaskAdmin.list_display + ("status", "reviewed_at", "posted_to_monday")
+    list_filter = ("status", "priority", "posted_to_monday")
+
+    actions = ["approve_send_to_monday", "decline_tasks"]
+
+    @admin.action(description="Approve & send to Monday")
+    def approve_send_to_monday(self, request, queryset):
+        from django.utils import timezone
+        from .services import create_monday_item
+
+        for task in queryset.filter(status=Task.Status.PENDING):
+            item_id = create_monday_item(task)
+            if item_id:
+                task.status = Task.Status.APPROVED
+                task.reviewed_at = timezone.now()
+                task.monday_item_id = item_id
+                task.posted_to_monday = True
+                task.save()
+
+    @admin.action(description="Decline selected tasks")
+    def decline_tasks(self, request, queryset):
+        from django.utils import timezone
+
+        for task in queryset.filter(status=Task.Status.PENDING):
+            task.status = Task.Status.REJECTED
+            task.reviewed_at = timezone.now()
+            task.save()
 
 
 @admin.register(ReviewAction)

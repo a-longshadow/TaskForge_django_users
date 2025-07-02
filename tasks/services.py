@@ -8,6 +8,7 @@ from typing import Any
 import requests
 from django.conf import settings
 from .models import AppSetting
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -40,16 +41,46 @@ def create_monday_item(task, board_id: str | None = None) -> str | None:
     """Creates an item on Monday.com and returns its item ID."""
 
     board_id = board_id or _get_setting("MONDAY_BOARD_ID")
+    group_id = _get_setting("MONDAY_GROUP_ID")
+    column_map_json = _get_setting("MONDAY_COLUMN_MAP")
+    try:
+        column_map = json.loads(column_map_json) if column_map_json else {}
+    except Exception:
+        column_map = {}
     if not board_id:
         logger.warning("MONDAY_BOARD_ID missing – cannot create Monday item")
         return None
 
+    # Build column values according to map, ensuring forbidden column omitted
+    def _safe(col):
+        return col and col != "multiple_person_mkr7wdwf"
+
+    column_values = {}
+    if _safe(column_map.get("team_member")):
+        column_values[column_map["team_member"]] = task.assignee_names
+    if _safe(column_map.get("email")):
+        column_values[column_map["email"]] = task.assignee_emails
+    if _safe(column_map.get("priority")):
+        column_values[column_map["priority"]] = {"label": task.priority}
+    if _safe(column_map.get("status")):
+        column_values[column_map["status"]] = {"label": task.status.title()}
+    if _safe(column_map.get("due_date")):
+        column_values[column_map["due_date"]] = {"date": str(task.date_expected)}
+    if _safe(column_map.get("brief_description")):
+        column_values[column_map["brief_description"]] = task.brief_description[:2000]
+
     query = """
-        mutation ($boardId: Int!, $itemName: String!) {
-          create_item (board_id: $boardId, item_name: $itemName) { id }
+        mutation ($board:Int!, $group:String, $name:String!, $cols: JSON!) {
+          create_item (board_id:$board, group_id:$group, item_name:$name, column_values:$cols) { id }
         }
     """
-    variables = {"boardId": int(board_id), "itemName": task.task_item[:100]}
+
+    variables = {
+        "board": int(board_id),
+        "group": group_id,
+        "name": task.task_item[:100],
+        "cols": json.dumps(column_values),
+    }
 
     try:
         data = _post_monday(query, variables)

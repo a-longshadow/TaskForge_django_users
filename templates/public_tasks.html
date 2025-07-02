@@ -77,7 +77,7 @@ function submitDecline(id){
     document.getElementById('decline-hint-'+id).textContent='Reason must be at least 5 words.';
     return;
   }
-  htmx.ajax('POST', `/api/tasks/${id}/reject/?confirm=true`, {values:{reason}, target:`#task-${id}`, swap:'delete'});
+  htmx.ajax('POST', `/api/tasks/${id}/reject/?confirm=true`, {values:{reason}, target:`#task-${id}`, swap:'delete', headers:{'X-Public-UI':'true'}});
 }
 
 // Toasts

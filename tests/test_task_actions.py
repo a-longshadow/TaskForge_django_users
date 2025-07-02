@@ -59,11 +59,11 @@ def test_task_reject_requires_reason(api_client):
     )
     url = reverse("tasks:task-reject", args=[task.id]) + "?confirm=true"
     # insufficient reason words
-    resp = api_client.post(url, data={"reason": "Too short"}, format="json")
+    resp = api_client.post(url, data={"reason": "Too short"}, format="json", HTTP_X_PUBLIC_UI="true")
     assert resp.status_code == 400
     # proper reason
     reason = "This task is no longer relevant because the project was cancelled."  # 12 words
-    resp = api_client.post(url, data={"reason": reason}, format="json")
+    resp = api_client.post(url, data={"reason": reason}, format="json", HTTP_X_PUBLIC_UI="true")
     assert resp.status_code == 200
     task.refresh_from_db()
     assert task.status == Task.Status.REJECTED
