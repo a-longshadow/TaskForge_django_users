@@ -52,21 +52,18 @@ class Command(BaseCommand):
         tasks_data = payload.get("tasks", [])
         created_tasks = 0
         for t in tasks_data:
-            task_obj, created = Task.objects.get_or_create(
+            Task.objects.create(
                 meeting=meeting,
                 task_item=t.get("task_item"),
-                defaults={
-                    "assignee_names": t.get("assignee(s)_full_names", ""),
-                    "assignee_emails": t.get("assignee_emails", ""),
-                    "priority": t.get("priority", Task.Priority.MEDIUM),
-                    "brief_description": t.get("brief_description", ""),
-                    "date_expected": t.get("date_expected", timezone.now().date()),
-                    "auto_approved": t.get("auto_approved", False),
-                    "status": Task.Status.APPROVED if t.get("approved") else Task.Status.PENDING,
-                },
+                assignee_names=t.get("assignee(s)_full_names", ""),
+                assignee_emails=t.get("assignee_emails", ""),
+                priority=t.get("priority", Task.Priority.MEDIUM),
+                brief_description=t.get("brief_description", ""),
+                date_expected=t.get("date_expected", timezone.now().date()),
+                auto_approved=t.get("auto_approved", False),
+                status=Task.Status.APPROVED if t.get("approved") else Task.Status.PENDING,
             )
-            if created:
-                created_tasks += 1
-                logger.info("Created task %s", task_obj.id)
+            created_tasks += 1
+        logger.info("Seeded %s tasks into meeting %s", created_tasks, meeting_id)
 
         self.stdout.write(self.style.SUCCESS(f"Seed completed: {created_tasks} tasks for meeting {meeting_id}")) 

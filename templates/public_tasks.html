@@ -28,7 +28,7 @@
                 <div class="flex justify-between items-start">
                     <p class="text-lg font-semibold text-gray-900 max-w-xl" id="title-{{ t.id }}">{{ t.task_item|truncatechars:80 }}</p>
                     <div class="flex gap-2">
-                        <button class="bg-green-600 text-white text-sm px-3 py-1 rounded hover:bg-green-700" hx-post="/api/tasks/{{ t.id }}/approve/?confirm=true" hx-swap="delete" hx-target="#task-{{ t.id }}">Approve</button>
+                        <button class="bg-green-600 text-white text-sm px-3 py-1 rounded hover:bg-green-700" onclick="approveTask('{{ t.id }}')">Approve</button>
                         <button class="bg-red-600 text-white text-sm px-3 py-1 rounded hover:bg-red-700" onclick="toggleDeclineForm('{{ t.id }}')">Decline</button>
                     </div>
                 </div>
@@ -78,6 +78,11 @@ function submitDecline(id){
     return;
   }
   htmx.ajax('POST', `/api/tasks/${id}/reject/?confirm=true`, {values:{reason}, target:`#task-${id}`, swap:'delete', headers:{'X-Public-UI':'true'}});
+}
+
+function approveTask(id){
+  if(!confirm('Approve this task?')) return;
+  htmx.ajax('POST', `/api/tasks/${id}/approve/?confirm=true`, {headers:{'X-Public-UI':'true'}, target:`#task-${id}`, swap:'delete'});
 }
 
 // Toasts

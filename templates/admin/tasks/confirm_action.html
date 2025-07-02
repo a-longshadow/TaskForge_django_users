@@ -1,0 +1,115 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls static admin_modify %}
+
+{% block extrahead %}{{ block.super }}
+<style>
+    .task-details {
+        margin: 20px 0;
+        padding: 20px;
+        border: 1px solid #eee;
+        border-radius: 4px;
+        background-color: #f9f9f9;
+    }
+    .task-title {
+        font-size: 1.2em;
+        font-weight: bold;
+        margin-bottom: 10px;
+    }
+    .task-meta {
+        margin-bottom: 15px;
+    }
+    .meta-item {
+        margin-bottom: 5px;
+    }
+    .task-description {
+        margin-top: 15px;
+        padding: 10px;
+        background-color: white;
+        border: 1px solid #eee;
+        border-radius: 4px;
+    }
+    .action-buttons {
+        margin-top: 20px;
+        display: flex;
+        gap: 10px;
+    }
+    .action-approve {
+        background-color: #10B981 !important;
+        color: white !important;
+    }
+    .action-reject {
+        background-color: #EF4444 !important;
+        color: white !important;
+    }
+    .reason-field {
+        margin-top: 15px;
+    }
+    .reason-field textarea {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        min-height: 100px;
+    }
+    .reason-field label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+    }
+</style>
+{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">{% trans 'Home' %}</a>
+    &rsaquo; <a href="{% url 'admin:app_list' app_label=opts.app_label %}">{{ opts.app_config.verbose_name }}</a>
+    &rsaquo; <a href="{% url 'admin:tasks_actionitem_changelist' %}">{{ opts.verbose_name_plural|capfirst }}</a>
+    &rsaquo; <a href="{% url 'admin:tasks_actionitem_change' task.pk %}">{{ task.task_item|truncatechars:50 }}</a>
+    &rsaquo; {% if action == 'approve' %}Approve Task{% else %}Decline Task{% endif %}
+</div>
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+    <div class="module">
+        <h1>{% if action == 'approve' %}Confirm Task Approval{% else %}Confirm Task Rejection{% endif %}</h1>
+        
+        <p>Are you sure you want to {% if action == 'approve' %}approve and send to Monday.com{% else %}decline{% endif %} the following task?</p>
+        
+        <div class="task-details">
+            <div class="task-title">{{ task.task_item }}</div>
+            <div class="task-meta">
+                <div class="meta-item"><strong>Meeting:</strong> {{ task.meeting.title }}</div>
+                <div class="meta-item"><strong>Assignees:</strong> {{ task.assignee_names }}</div>
+                <div class="meta-item"><strong>Priority:</strong> {{ task.priority }}</div>
+                <div class="meta-item"><strong>Due:</strong> {{ task.date_expected }}</div>
+            </div>
+            <div class="task-description">
+                <strong>Description:</strong>
+                <p>{{ task.brief_description|linebreaksbr }}</p>
+            </div>
+        </div>
+        
+        <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="confirm" value="yes">
+            
+            {% if action == 'reject' %}
+            <div class="reason-field">
+                <label for="rejected_reason">Rejection Reason:</label>
+                <textarea name="rejected_reason" id="rejected_reason" placeholder="Provide a reason for declining this task">Declined by admin</textarea>
+            </div>
+            {% endif %}
+            
+            <div class="action-buttons">
+                <a href="{% url 'admin:tasks_actionitem_change' task.pk %}" class="button">Cancel</a>
+                {% if action == 'approve' %}
+                    <input type="submit" value="Approve & Send to Monday" class="default action-approve">
+                {% else %}
+                    <input type="submit" value="Decline Task" class="default action-reject">
+                {% endif %}
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %} 

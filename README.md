@@ -27,4 +27,19 @@ python manage.py runserver
 
 ## Runtime-editable settings
 
-`App Setting` entries in Django admin allow ops to update **MONDAY_API_KEY**, **MONDAY_BOARD_ID**, or any future key/value without redeploying. 
+`App Setting` entries in Django admin allow ops to update **MONDAY_API_KEY**, **MONDAY_BOARD_ID**, or any future key/value without redeploying.
+
+## Documentation
+
+- [Admin Interface Improvements](docs/admin_improvements.md) - Details on the enhanced admin interface with custom confirmation dialogs and Monday.com integration
+- [API Documentation](docs/api.md)
+- [Architecture Overview](docs/architecture.md)
+- [Deployment Guide](DEPLOYMENT_GUIDE.md)
+- [Setup Guide](docs/setup.md)
+
+## Recent Improvements
+
+- Enhanced admin interface with custom confirmation dialogs
+- Added individual and bulk approve/reject actions for tasks
+- Fixed Monday.com integration for task synchronization
+- Improved public task review interface with modal confirmations 
