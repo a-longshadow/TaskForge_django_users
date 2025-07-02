@@ -3,13 +3,17 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
 from unittest.mock import patch
+from django.contrib.auth.models import User
 
 from tasks.models import Meeting, Task, ReviewAction
 
 
 @pytest.fixture()
 def api_client():
-    return APIClient()
+    user = User.objects.create_user(username="tester", password="x", is_staff=True)
+    client = APIClient()
+    client.force_authenticate(user=user)
+    return client
 
 
 @pytest.mark.django_db
@@ -27,7 +31,7 @@ def test_task_approve_flow(api_client):
         date_expected=timezone.now().date(),
     )
 
-    url = reverse("task-approve", args=[task.id])
+    url = reverse("tasks:task-approve", args=[task.id]) + "?confirm=true"
     with patch("tasks.views.create_monday_item", return_value="123"):
         resp = api_client.post(url)
     assert resp.status_code == 200
@@ -53,13 +57,13 @@ def test_task_reject_requires_reason(api_client):
         brief_description="Bar",
         date_expected=timezone.now().date(),
     )
-    url = reverse("task-reject", args=[task.id])
+    url = reverse("tasks:task-reject", args=[task.id]) + "?confirm=true"
     # insufficient reason words
-    resp = api_client.post(url, data={"reason": "Too short"})
+    resp = api_client.post(url, data={"reason": "Too short"}, format="json")
     assert resp.status_code == 400
     # proper reason
     reason = "This task is no longer relevant because the project was cancelled."  # 12 words
-    resp = api_client.post(url, data={"reason": reason})
+    resp = api_client.post(url, data={"reason": reason}, format="json")
     assert resp.status_code == 200
     task.refresh_from_db()
     assert task.status == Task.Status.REJECTED
@@ -81,7 +85,7 @@ def test_task_edit_description(api_client):
         brief_description="Old",
         date_expected=timezone.now().date(),
     )
-    url = reverse("task-edit", args=[task.id])
+    url = reverse("tasks:task-edit", args=[task.id])
     resp = api_client.patch(url, data={"new_brief_description": "New desc"}, format="json")
     assert resp.status_code == 200
     task.refresh_from_db()

@@ -172,6 +172,12 @@ class IngestView(APIView):
         if not tasks_data:
             return Response({"detail": "monday_tasks missing or empty"}, status=400)
 
+        # Early-exit idempotency: if any meeting_id in this payload is already stored, skip ingestion
+        meeting_ids = {t.get("meeting_id") for t in tasks_data if t.get("meeting_id")}
+        if meeting_ids and Meeting.objects.filter(meeting_id__in=meeting_ids).exists():
+            logger.info("Ingest skipped: meetings %s already exist", ", ".join(sorted(meeting_ids)))
+            return Response({"detail": "already_ingested"}, status=200)
+
         created = 0
         for t in tasks_data:
             meeting_obj, _ = Meeting.objects.get_or_create(
