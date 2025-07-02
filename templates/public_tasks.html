@@ -1,46 +1,64 @@
-<!-- Public task review page -->
+<!-- New streamlined public tasks UI -->
 {% load static %}
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Pending Tasks</title>
+    <meta charset="utf-8">
+    <title>Tasks Awaiting Review</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
 </head>
-<body class="bg-gradient-to-br from-purple-600 to-indigo-700 min-h-screen py-10 px-4 text-white">
-    <div class="max-w-4xl mx-auto">
-        <h1 class="text-3xl font-bold mb-6">Tasks Awaiting Review</h1>
-        <a href="/" class="underline mb-8 inline-block">← Home</a>
+<body class="min-h-screen bg-gradient-to-br from-violet-600 via-purple-600 to-indigo-700 text-white py-10 px-4">
+<div class="max-w-5xl mx-auto">
+    <h1 class="text-4xl font-semibold mb-6">Tasks Awaiting Review</h1>
+    <a href="/" class="underline mb-8 inline-block">← Home</a>
 
-        {% regroup tasks by meeting as meeting_list %}
-        {% for meeting in meeting_list %}
-        <div class="mb-4 bg-white/10 rounded-lg shadow p-4">
-            <button class="w-full text-left font-semibold" hx-get="#" hx-swap="toggle" hx-target="#tasks-{{ meeting.grouper.id }}">
-                {{ meeting.grouper.title }} – {{ meeting.grouper.date|date:"Y-m-d H:i" }} ({{ meeting.list|length }} tasks)
-            </button>
-            <div id="tasks-{{ meeting.grouper.id }}" class="mt-3 hidden">
-                {% for task in meeting.list %}
-                <div id="task-{{ task.id }}" class="bg-white/5 rounded p-3 mb-2">
-                    <textarea class="w-full bg-transparent border border-white/20 p-2 rounded mb-2" rows="2" hx-patch="/api/tasks/{{ task.id }}/edit/" hx-trigger="change" hx-target="#task-{{ task.id }}" name="new_brief_description">{{ task.brief_description }}</textarea>
-                    <div class="text-sm mb-2">Assignees: {{ task.assignee_names }} · Due: {{ task.date_expected }}</div>
-                    <button class="bg-green-600 hover:bg-green-700 px-3 py-1 rounded text-sm" hx-post="/api/tasks/{{ task.id }}/approve/" hx-swap="delete" hx-target="#task-{{ task.id }}">Approve</button>
-                    <button class="bg-red-600 hover:bg-red-700 px-3 py-1 rounded text-sm" hx-post="/api/tasks/{{ task.id }}/reject/" hx-vals='{"reason":"Not needed"}' hx-swap="delete" hx-target="#task-{{ task.id }}">Reject</button>
-                    <span class="ml-2 text-xs opacity-80">{{ task.created_at|timesince }} ago</span>
+    {% regroup tasks by meeting as meeting_list %}
+    {% for meeting in meeting_list %}
+    <div class="mb-4">
+        <button type="button" class="w-full flex justify-between items-center bg-white/10 hover:bg-white/15 rounded-lg px-4 py-3 transition" onclick="document.getElementById('tasks-{{ meeting.grouper.id }}').classList.toggle('hidden')">
+            <span>{{ meeting.grouper.title }} – {{ meeting.grouper.date|date:"Y-m-d H:i" }} ({{ meeting.list|length }} tasks)</span>
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+        </button>
+        <div id="tasks-{{ meeting.grouper.id }}" class="space-y-3 mt-3 hidden">
+            {% for t in meeting.list %}
+            <div id="task-{{ t.id }}" class="bg-white/5 rounded-lg p-4 shadow flex flex-col gap-2">
+                <textarea class="w-full bg-transparent border border-white/20 rounded p-2 focus:outline-none focus:ring-2 focus:ring-purple-400" rows="2" name="new_brief_description" hx-patch="/api/tasks/{{ t.id }}/edit/?confirm=true" hx-trigger="blur changed delay:500ms" hx-target="#task-{{ t.id }}" hx-swap="outerHTML">{{ t.brief_description }}</textarea>
+                <div class="text-sm opacity-90 flex flex-wrap gap-4">
+                    <span>Assignees: {{ t.assignee_names|default:"—" }}</span>
+                    <span>Due: {{ t.date_expected }}</span>
+                    <span>Priority: {{ t.priority }}</span>
                 </div>
-                {% endfor %}
+                <div class="flex gap-2 mt-1">
+                    <button class="bg-green-500 hover:bg-green-600 text-sm px-3 py-1 rounded" hx-post="/api/tasks/{{ t.id }}/approve/?confirm=true" hx-swap="delete" hx-target="#task-{{ t.id }}">Approve</button>
+                    <button class="bg-red-500 hover:bg-red-600 text-sm px-3 py-1 rounded" onclick="promptReject('{{ t.id }}')">Reject</button>
+                </div>
             </div>
+            {% endfor %}
         </div>
-        {% empty %}
-        <p>No tasks pending review 🎉</p>
-        {% endfor %}
     </div>
+    {% empty %}
+    <p>No tasks pending review 🎉</p>
+    {% endfor %}
+</div>
 
-    <script>
-        document.body.addEventListener('htmx:afterOnLoad', function(evt) {
-            Toastify({text: 'Success', duration: 2000, gravity: 'bottom', backgroundColor: '#10B981'}).showToast();
-        });
-    </script>
+<script>
+function promptReject(taskId) {
+  const reason = prompt('Please provide a reason (min 10 words)');
+  if (!reason || reason.trim().split(/\s+/).length < 10) {
+    alert('Rejection reason must be at least 10 words.');
+    return;
+  }
+  htmx.ajax('POST', `/api/tasks/${taskId}/reject/?confirm=true`, {target:`#task-${taskId}`, swap:'delete', values:{reason}})
+}
+
+document.body.addEventListener('htmx:afterRequest', evt => {
+  if (evt.detail.xhr.status === 200) {
+    Toastify({text:'Success',duration:2000,gravity:'bottom',backgroundColor:'#22c55e'}).showToast();
+  }
+});
+</script>
 </body>
 </html> 
