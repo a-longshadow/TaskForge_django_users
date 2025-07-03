@@ -12,7 +12,10 @@ import json
 
 logger = logging.getLogger(__name__)
 
-MONDAY_API_URL = getattr(settings, 'MONDAY_API_URL', "https://api.monday.com/v2")  # GraphQL endpoint
+# Remove hardcoded URL and use _get_setting instead
+def _get_monday_api_url() -> str:
+    """Get Monday.com API URL from AppSetting, environment variable, or settings, with fallback."""
+    return _get_setting("MONDAY_API_URL") or "https://api.monday.com/v2"
 
 
 def _get_setting(name: str) -> str | None:
@@ -34,11 +37,14 @@ def _post_monday(query: str, variables: dict[str, Any] | None = None) -> dict[st
         "API-Version": "2023-10"  # Required for project tokens
     }
 
+    # Get API URL dynamically
+    monday_api_url = _get_monday_api_url()
+    logger.info(f"Using Monday.com API URL: {monday_api_url}")
     logger.info(f"Making Monday.com API call with headers: {json.dumps({k: '***' if k == 'Authorization' else v for k, v in headers.items()})}")
     logger.info(f"Monday.com API variables: {json.dumps(variables)}")
     
     try:
-        resp = requests.post(MONDAY_API_URL, json={"query": query, "variables": variables}, headers=headers, timeout=15)
+        resp = requests.post(monday_api_url, json={"query": query, "variables": variables}, headers=headers, timeout=15)
         resp.raise_for_status()
         data = resp.json()
         

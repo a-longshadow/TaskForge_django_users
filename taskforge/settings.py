@@ -62,8 +62,12 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    # Custom request logging (added later)
+    # Custom request logging
     "tasks.middleware.RequestLoggingMiddleware",
+    # Admin action logging middleware
+    "tasks.middleware.AdminActionLogMiddleware",
+    # Page logging middleware (replaces RequestLoggingMiddleware)
+    "tasks.middleware.PageLogMiddleware",
 ]
 
 ROOT_URLCONF = "taskforge.urls"
@@ -175,6 +179,7 @@ LOGGING = {
 MONDAY_API_KEY: str | None = "eyJhbGciOiJIUzI1NiJ9.eyJ0aWQiOjUxMjY3Mjg4OCwiYWFpIjoxMSwidWlkIjo3NTc1NzcxNiwiaWFkIjoiMjAyNS0wNS0xNFQxMTowNzowMS4wMDBaIiwicGVyIjoibWU6d3JpdGUiLCJhY3RpZCI6Mjg0NjkxNTUsInJnbiI6InVzZTEifQ.DiRDF-_B--_QqgBLrhg3L_Z22d3IiQhQC9jpLrblnpg"
 
 # Safe-to-commit defaults (can be overridden by env or AppSetting)
+MONDAY_API_URL: str | None = env("MONDAY_API_URL", default="https://api.monday.com/v2")
 MONDAY_BOARD_ID: str | None = env("MONDAY_BOARD_ID", default="9212659997")
 MONDAY_GROUP_ID: str | None = env("MONDAY_GROUP_ID", default="group_mkqyryrz")
 MONDAY_COLUMN_MAP: str = env(

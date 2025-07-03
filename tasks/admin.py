@@ -7,17 +7,116 @@ from django.utils import timezone
 from django.template.response import TemplateResponse
 from django.http import HttpResponseRedirect
 import logging
+from django.contrib.admin.models import LogEntry, ADDITION, CHANGE, DELETION
+from django.contrib.contenttypes.models import ContentType
+from django.utils.translation import gettext_lazy as _
+from django.utils.encoding import force_str
 
 from .models import Meeting, Task, ReviewAction, PageLog, AppSetting, RawTranscript, ActionItem, SecurityQuestion, UserSecurityAnswer
 
 
+# Admin logging utilities
+class AdminActionLogger:
+    """Utility class for logging admin actions in a consistent way."""
+    
+    @staticmethod
+    def log_addition(request, obj, message=''):
+        """Log that an object has been successfully added."""
+        return LogEntry.objects.log_action(
+            user_id=request.user.pk,
+            content_type_id=ContentType.objects.get_for_model(obj).pk,
+            object_id=obj.pk,
+            object_repr=force_str(obj),
+            action_flag=ADDITION,
+            change_message=message,
+        )
+    
+    @staticmethod
+    def log_change(request, obj, message=''):
+        """Log that an object has been successfully changed."""
+        return LogEntry.objects.log_action(
+            user_id=request.user.pk,
+            content_type_id=ContentType.objects.get_for_model(obj).pk,
+            object_id=obj.pk,
+            object_repr=force_str(obj),
+            action_flag=CHANGE,
+            change_message=message,
+        )
+    
+    @staticmethod
+    def log_deletion(request, obj, message=''):
+        """Log that an object has been successfully deleted."""
+        return LogEntry.objects.log_action(
+            user_id=request.user.pk,
+            content_type_id=ContentType.objects.get_for_model(obj).pk,
+            object_id=obj.pk,
+            object_repr=force_str(obj),
+            action_flag=DELETION,
+            change_message=message,
+        )
+    
+    @staticmethod
+    def log_custom_action(request, obj, action, message=''):
+        """Log a custom action on an object."""
+        return LogEntry.objects.log_action(
+            user_id=request.user.pk,
+            content_type_id=ContentType.objects.get_for_model(obj).pk,
+            object_id=obj.pk,
+            object_repr=force_str(obj),
+            action_flag=CHANGE,  # Using CHANGE for custom actions
+            change_message=f"{action}: {message}" if message else action,
+        )
+
+
+class LoggingModelAdmin(admin.ModelAdmin):
+    """Base ModelAdmin class that logs all actions."""
+    
+    def save_model(self, request, obj, form, change):
+        """Log model save actions."""
+        is_new = obj.pk is None
+        super().save_model(request, obj, form, change)
+        
+        if is_new:
+            AdminActionLogger.log_addition(request, obj, f"Added {obj._meta.verbose_name}")
+        else:
+            # Get the changed fields
+            if form.changed_data:
+                changed_fields = ', '.join(form.changed_data)
+                AdminActionLogger.log_change(request, obj, f"Changed {changed_fields}")
+            else:
+                AdminActionLogger.log_change(request, obj, f"No fields changed")
+    
+    def delete_model(self, request, obj):
+        """Log model deletion."""
+        AdminActionLogger.log_deletion(request, obj, f"Deleted {obj._meta.verbose_name}")
+        super().delete_model(request, obj)
+    
+    def save_formset(self, request, form, formset, change):
+        """Log inline model actions."""
+        instances = formset.save(commit=False)
+        
+        # Track additions
+        for obj in formset.new_objects:
+            AdminActionLogger.log_addition(request, obj, f"Added {obj._meta.verbose_name}")
+        
+        # Track changes
+        for obj in formset.changed_objects:
+            AdminActionLogger.log_change(request, obj[0], f"Changed {obj._meta.verbose_name}")
+        
+        # Track deletions
+        for obj in formset.deleted_objects:
+            AdminActionLogger.log_deletion(request, obj, f"Deleted {obj._meta.verbose_name}")
+            
+        super().save_formset(request, form, formset, change)
+
+
 @admin.register(Meeting)
-class MeetingAdmin(admin.ModelAdmin):
+class MeetingAdmin(LoggingModelAdmin):
     list_display = ("title", "organizer_email", "date", "meeting_id")
     search_fields = ("title", "organizer_email", "meeting_id")
 
 
-class BaseTaskAdmin(admin.ModelAdmin):
+class BaseTaskAdmin(LoggingModelAdmin):
     list_display = (
         "task_item",
         "meeting",
@@ -172,9 +271,25 @@ class ActionItemAdmin(BaseTaskAdmin):
                     action=ReviewAction.Action.APPROVE
                 )
                 
+                # Log to admin log
+                AdminActionLogger.log_custom_action(
+                    request, 
+                    task, 
+                    "Approved and sent to Monday.com", 
+                    f"Item ID: {item_id}"
+                )
+                
                 messages.success(request, f"Task '{task.task_item}' approved and sent to Monday.com successfully.")
             else:
                 messages.error(request, f"Failed to send task '{task.task_item}' to Monday.com. Check logs for details.")
+                
+                # Log the failure
+                AdminActionLogger.log_custom_action(
+                    request, 
+                    task, 
+                    "Failed to send to Monday.com",
+                    "Check application logs for details"
+                )
                 
         except ActionItem.DoesNotExist:
             messages.error(request, "Task not found or already processed.")
@@ -199,9 +314,10 @@ class ActionItemAdmin(BaseTaskAdmin):
                 return TemplateResponse(request, 'admin/tasks/confirm_action.html', context)
             
             # Process the rejection
+            reason = request.POST.get('rejected_reason', "Declined by admin")
             task.status = Task.Status.REJECTED
             task.reviewed_at = timezone.now()
-            task.rejected_reason = request.POST.get('rejected_reason', "Declined by admin")
+            task.rejected_reason = reason
             task.save()
             
             # Log the action
@@ -210,6 +326,14 @@ class ActionItemAdmin(BaseTaskAdmin):
                 user=request.user,
                 action=ReviewAction.Action.REJECT,
                 reason=task.rejected_reason
+            )
+            
+            # Log to admin log
+            AdminActionLogger.log_custom_action(
+                request, 
+                task, 
+                "Rejected", 
+                f"Reason: {reason}"
             )
             
             messages.success(request, f"Task '{task.task_item}' declined successfully.")
@@ -289,6 +413,14 @@ class ActionItemAdmin(BaseTaskAdmin):
         success_count = 0
         error_count = 0
         error_tasks = []
+        
+        # Log the bulk action start
+        AdminActionLogger.log_custom_action(
+            request,
+            queryset.first() if queryset.exists() else None,
+            "Bulk Approve Started",
+            f"Processing {queryset.count()} tasks"
+        )
 
         for task in queryset:
             logger.info(f"Processing task {task.id}: {task.task_item[:50]}...")
@@ -308,16 +440,48 @@ class ActionItemAdmin(BaseTaskAdmin):
                         action=ReviewAction.Action.APPROVE
                     )
                     
+                    # Log to admin log
+                    AdminActionLogger.log_custom_action(
+                        request, 
+                        task, 
+                        "Bulk Approved", 
+                        f"Monday.com Item ID: {item_id}"
+                    )
+                    
                     logger.info(f"Successfully approved task {task.id} and sent to Monday.com (item_id={item_id})")
                     success_count += 1
                 else:
                     logger.error(f"Failed to send task {task.id} to Monday.com - no item_id returned")
                     error_count += 1
                     error_tasks.append(task.task_item[:50])
+                    
+                    # Log the failure
+                    AdminActionLogger.log_custom_action(
+                        request, 
+                        task, 
+                        "Bulk Approval Failed", 
+                        "Failed to send to Monday.com"
+                    )
             except Exception as e:
                 logger.exception(f"Exception while processing task {task.id}: {str(e)}")
                 error_count += 1
                 error_tasks.append(task.task_item[:50])
+                
+                # Log the exception
+                AdminActionLogger.log_custom_action(
+                    request, 
+                    task, 
+                    "Bulk Approval Exception", 
+                    str(e)[:200]
+                )
+        
+        # Log the bulk action completion
+        AdminActionLogger.log_custom_action(
+            request,
+            queryset.first() if queryset.exists() else None,
+            "Bulk Approve Completed",
+            f"Success: {success_count}, Errors: {error_count}"
+        )
         
         if success_count:
             messages.success(request, f"{success_count} task(s) approved and sent to Monday.com successfully.")
@@ -354,6 +518,15 @@ class ActionItemAdmin(BaseTaskAdmin):
     def process_bulk_reject(self, request, queryset):
         """Process the bulk rejection after confirmation."""
         count = 0
+        
+        # Log the bulk action start
+        AdminActionLogger.log_custom_action(
+            request,
+            queryset.first() if queryset.exists() else None,
+            "Bulk Reject Started",
+            f"Processing {queryset.count()} tasks"
+        )
+        
         for task in queryset:
             task.status = Task.Status.REJECTED
             task.reviewed_at = timezone.now()
@@ -368,7 +541,23 @@ class ActionItemAdmin(BaseTaskAdmin):
                 reason="Declined by admin"
             )
             
+            # Log to admin log
+            AdminActionLogger.log_custom_action(
+                request, 
+                task, 
+                "Bulk Rejected", 
+                "Declined by admin"
+            )
+            
             count += 1
+        
+        # Log the bulk action completion
+        AdminActionLogger.log_custom_action(
+            request,
+            queryset.first() if queryset.exists() else None,
+            "Bulk Reject Completed",
+            f"Rejected {count} tasks"
+        )
         
         if count:
             messages.success(request, f"{count} task(s) declined successfully.")
@@ -379,13 +568,13 @@ class ActionItemAdmin(BaseTaskAdmin):
 
 
 @admin.register(ReviewAction)
-class ReviewActionAdmin(admin.ModelAdmin):
+class ReviewActionAdmin(LoggingModelAdmin):
     list_display = ("task", "user", "action", "timestamp")
     list_filter = ("action",)
 
 
 @admin.register(PageLog)
-class PageLogAdmin(admin.ModelAdmin):
+class PageLogAdmin(LoggingModelAdmin):
     list_display = (
         "path",
         "method",
@@ -398,25 +587,46 @@ class PageLogAdmin(admin.ModelAdmin):
 
 
 @admin.register(AppSetting)
-class AppSettingAdmin(admin.ModelAdmin):
+class AppSettingAdmin(LoggingModelAdmin):
     list_display = ("key", "updated_at")
     search_fields = ("key",)
 
 
 @admin.register(RawTranscript)
-class RawTranscriptAdmin(admin.ModelAdmin):
+class RawTranscriptAdmin(LoggingModelAdmin):
     list_display = ("file_name", "meeting", "created_at")
     search_fields = ("file_name", "meeting__title")
 
 
 @admin.register(SecurityQuestion)
-class SecurityQuestionAdmin(admin.ModelAdmin):
+class SecurityQuestionAdmin(LoggingModelAdmin):
     list_display = ("question_text",)
 
 
 @admin.register(UserSecurityAnswer)
-class UserSecurityAnswerAdmin(admin.ModelAdmin):
+class UserSecurityAnswerAdmin(LoggingModelAdmin):
     list_display = ("user", "question")
+
+
+# Register the LogEntry model in the admin
+class LogEntryAdmin(admin.ModelAdmin):
+    date_hierarchy = 'action_time'
+    list_filter = ('user', 'content_type', 'action_flag')
+    search_fields = ('object_repr', 'change_message')
+    list_display = ('action_time', 'user', 'content_type', 'object_repr', 'action_flag', 'change_message')
+    readonly_fields = ('action_time', 'user', 'content_type', 'object_id', 'object_repr', 'action_flag', 'change_message')
+    
+    def has_add_permission(self, request):
+        return False
+    
+    def has_change_permission(self, request, obj=None):
+        return False
+    
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+admin.site.register(LogEntry, LogEntryAdmin)
 
 
 try:
