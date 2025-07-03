@@ -266,11 +266,8 @@ class PublicActionItemView(ListView):
         from datetime import timedelta
 
         cutoff = timezone.now() - timedelta(hours=24)
-        # TODO: implement per-row expires_after_h using database functions (Postgres) if needed.
-        return (
-            Task.objects.filter(reviewed_at__isnull=True, created_at__gt=cutoff)
-            .select_related("meeting")
-        )
+        # Show all tasks, including those that have been reviewed
+        return Task.objects.select_related("meeting")
 
 
 @csrf_exempt
