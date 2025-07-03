@@ -2,6 +2,31 @@
 {% load i18n admin_urls static admin_modify %}
 
 {% block extrahead %}{{ block.super }}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Add form submission handler for debugging
+        const form = document.getElementById('bulk-action-form');
+        if (form) {
+            form.addEventListener('submit', function(e) {
+                console.log('Form submission started');
+                // Log form data for debugging
+                const formData = new FormData(form);
+                const formDataObj = {};
+                formData.forEach((value, key) => {
+                    if (formDataObj[key]) {
+                        if (!Array.isArray(formDataObj[key])) {
+                            formDataObj[key] = [formDataObj[key]];
+                        }
+                        formDataObj[key].push(value);
+                    } else {
+                        formDataObj[key] = value;
+                    }
+                });
+                console.log('Form data:', formDataObj);
+            });
+        }
+    });
+</script>
 <style>
     .task-list {
         margin: 20px 0;
@@ -39,6 +64,22 @@
         background-color: #EF4444 !important;
         color: white !important;
     }
+    .debug-info {
+        margin-top: 20px;
+        padding: 10px;
+        background-color: #f8f9fa;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-family: monospace;
+        font-size: 12px;
+        display: none;
+    }
+    .debug-toggle {
+        margin-top: 10px;
+        font-size: 12px;
+        color: #666;
+        cursor: pointer;
+    }
 </style>
 {% endblock %}
 
@@ -72,12 +113,13 @@
             {% endfor %}
         </div>
         
-        <form method="post">
+        <form method="post" id="bulk-action-form" action="{% if action == 'approve' %}{% url 'admin:bulk_approve' %}{% else %}{% url 'admin:bulk_reject' %}{% endif %}">
             {% csrf_token %}
             {% for task in tasks %}
                 <input type="hidden" name="_selected_action" value="{{ task.pk }}">
             {% endfor %}
             <input type="hidden" name="confirm" value="yes">
+            <input type="hidden" name="action" value="{{ action }}">
             
             <div class="action-buttons">
                 <a href="{% url 'admin:tasks_actionitem_changelist' %}" class="button">Cancel</a>
@@ -88,6 +130,56 @@
                 {% endif %}
             </div>
         </form>
+        
+        <div class="debug-toggle" onclick="toggleDebugInfo()">
+            Show/Hide Debug Info
+        </div>
+        <div id="debug-info" class="debug-info">
+            <p><strong>Tasks ({{ tasks|length }}):</strong></p>
+            <ul>
+                {% for task in tasks %}
+                <li>ID: {{ task.pk }} - {{ task.task_item|truncatechars:50 }}</li>
+                {% endfor %}
+            </ul>
+            <p><strong>Action:</strong> {{ action }}</p>
+            <p><strong>Current URL:</strong> {{ request.path }}</p>
+            <p><strong>Form Action:</strong> {% if action == 'approve' %}{% url 'admin:bulk_approve' %}{% else %}{% url 'admin:bulk_reject' %}{% endif %}</p>
+        </div>
     </div>
 </div>
+
+<script>
+    // Function to toggle debug info visibility
+    function toggleDebugInfo() {
+        var debugInfo = document.getElementById('debug-info');
+        if (debugInfo.style.display === 'none' || !debugInfo.style.display) {
+            debugInfo.style.display = 'block';
+        } else {
+            debugInfo.style.display = 'none';
+        }
+    }
+
+    // Additional form validation
+    document.addEventListener('DOMContentLoaded', function() {
+        const form = document.getElementById('bulk-action-form');
+        if (form) {
+            // Ensure all task IDs are included
+            const taskIds = [];
+            {% for task in tasks %}
+            taskIds.push('{{ task.pk }}');
+            {% endfor %}
+            
+            console.log('Expected task IDs:', taskIds);
+            
+            // Check if any task IDs are missing from the form
+            const formTaskIds = Array.from(form.querySelectorAll('input[name="_selected_action"]')).map(input => input.value);
+            console.log('Form task IDs:', formTaskIds);
+            
+            const missingIds = taskIds.filter(id => !formTaskIds.includes(id));
+            if (missingIds.length > 0) {
+                console.error('Missing task IDs in form:', missingIds);
+            }
+        }
+    });
+</script>
 {% endblock %} 

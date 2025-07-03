@@ -6,6 +6,7 @@ from django.contrib import messages
 from django.utils import timezone
 from django.template.response import TemplateResponse
 from django.http import HttpResponseRedirect
+import logging
 
 from .models import Meeting, Task, ReviewAction, PageLog, AppSetting, RawTranscript, ActionItem, SecurityQuestion, UserSecurityAnswer
 
@@ -282,33 +283,51 @@ class ActionItemAdmin(BaseTaskAdmin):
         """Process the bulk approval after confirmation."""
         from .services import create_monday_item
         
+        logger = logging.getLogger(__name__)
+        logger.info(f"Processing bulk approval for {queryset.count()} tasks")
+        
         success_count = 0
         error_count = 0
+        error_tasks = []
 
         for task in queryset:
-            item_id = create_monday_item(task)
-            if item_id:
-                task.status = Task.Status.APPROVED
-                task.reviewed_at = timezone.now()
-                task.monday_item_id = item_id
-                task.posted_to_monday = True
-                task.save()
-                
-                # Log the action
-                ReviewAction.objects.create(
-                    task=task,
-                    user=request.user,
-                    action=ReviewAction.Action.APPROVE
-                )
-                
-                success_count += 1
-            else:
+            logger.info(f"Processing task {task.id}: {task.task_item[:50]}...")
+            try:
+                item_id = create_monday_item(task)
+                if item_id:
+                    task.status = Task.Status.APPROVED
+                    task.reviewed_at = timezone.now()
+                    task.monday_item_id = item_id
+                    task.posted_to_monday = True
+                    task.save()
+                    
+                    # Log the action
+                    ReviewAction.objects.create(
+                        task=task,
+                        user=request.user,
+                        action=ReviewAction.Action.APPROVE
+                    )
+                    
+                    logger.info(f"Successfully approved task {task.id} and sent to Monday.com (item_id={item_id})")
+                    success_count += 1
+                else:
+                    logger.error(f"Failed to send task {task.id} to Monday.com - no item_id returned")
+                    error_count += 1
+                    error_tasks.append(task.task_item[:50])
+            except Exception as e:
+                logger.exception(f"Exception while processing task {task.id}: {str(e)}")
                 error_count += 1
+                error_tasks.append(task.task_item[:50])
         
         if success_count:
             messages.success(request, f"{success_count} task(s) approved and sent to Monday.com successfully.")
         if error_count:
-            messages.error(request, f"Failed to send {error_count} task(s) to Monday.com. Check logs for details.")
+            error_msg = f"Failed to send {error_count} task(s) to Monday.com. Check logs for details."
+            if error_tasks:
+                error_msg += f" Problem tasks: {', '.join(error_tasks[:3])}"
+                if len(error_tasks) > 3:
+                    error_msg += f" and {len(error_tasks) - 3} more"
+            messages.error(request, error_msg)
             
         return redirect('admin:tasks_actionitem_changelist')
     

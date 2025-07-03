@@ -19,3 +19,7 @@ staticfiles/
 
 # OS
 .DS_Store 
+# Ignore local env, data, venv
+.env
+ACTION_ITEMS/
+.venv/

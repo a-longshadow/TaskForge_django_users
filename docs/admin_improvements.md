@@ -46,11 +46,67 @@ The `ActionItemAdmin` class in `tasks/admin.py` was enhanced with:
 
 ### Monday.com Integration
 
-The integration with Monday.com was improved in `tasks/services.py`:
+### Overview
+The TaskForge application integrates with Monday.com to synchronize approved tasks. Each approved task is sent to Monday.com as a new item in a specified board and group.
 
-- Added proper status mapping between Django task statuses and Monday.com status options
-- Enhanced error handling and logging
-- Added success/error messages for better user feedback
+### Key Components
+1. **API Integration**
+   - Uses GraphQL API for Monday.com communication
+   - Requires API key, board ID, group ID, and column mapping
+   - All settings stored in AppSettings for runtime configurability
+
+2. **Status Mapping**
+   - Django task statuses map to Monday.com status options:
+     - `pending` → "To Do"
+     - `approved` → "Approved"
+     - `rejected` → "Deprioritized"
+
+3. **Error Handling**
+   - Comprehensive logging of all API calls and responses
+   - Detailed error messages for failed operations
+   - Tracking of Monday.com item IDs for successful submissions
+
+### Bulk Operations
+Monday.com API does not support creating multiple items in a single request. Therefore, bulk operations are implemented by:
+
+1. Processing each task individually in a loop
+2. Tracking success/failure counts
+3. Providing detailed error messages for failed items
+4. Ensuring transaction integrity by only updating tasks that were successfully sent
+
+### Configuration Requirements
+To ensure Monday.com integration works properly, the following settings must be configured in AppSettings:
+
+1. `MONDAY_API_KEY`: Your Monday.com API key (starts with "eyJhbG...")
+2. `MONDAY_BOARD_ID`: ID of the target Monday.com board (e.g., "9212659997")
+3. `MONDAY_GROUP_ID`: ID of the group within the board (e.g., "group_mkqyryrz")
+4. `MONDAY_COLUMN_MAP`: JSON mapping of TaskForge fields to Monday.com columns
+
+Example column map:
+```json
+{
+  "team_member": "text",
+  "email": "email",
+  "priority": "status",
+  "status": "status",
+  "due_date": "date",
+  "brief_description": "text"
+}
+```
+
+### Troubleshooting
+If tasks are not being sent to Monday.com, check:
+
+1. **API Key**: Ensure the API key is valid and has write permissions
+2. **Board/Group IDs**: Verify the board and group exist and are accessible
+3. **Column Mapping**: Ensure column IDs match those in your Monday.com board
+4. **Logs**: Check application logs for detailed error messages
+5. **Network**: Verify the server can reach api.monday.com
+
+Common errors:
+- "Not authorized" - API key issues or permission problems
+- "Board not found" - Incorrect board ID
+- "Column not found" - Incorrect column mapping
 
 ## Technical Notes
 

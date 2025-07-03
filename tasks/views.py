@@ -113,12 +113,52 @@ class TaskViewSet(viewsets.ModelViewSet):
                 task.monday_item_id = item_id
                 task.posted_to_monday = True
                 task.save(update_fields=["monday_item_id", "posted_to_monday"])
+                logger.info(f"Task {task.id} successfully sent to Monday.com with item_id={item_id}")
+            else:
+                logger.error(f"Failed to send task {task.id} to Monday.com")
 
         return Response(TaskSerializer(task, context={"request": request}).data)
 
     @action(methods=["post"], detail=True, url_path="approve")
     def approve(self, request, pk=None):
-        return self._handle_simple_action(request, pk, action="approve")
+        """Approve a task and send to Monday.com."""
+        task = self.get_object()
+        
+        # Confirm parameter required
+        confirm = request.query_params.get("confirm") == "true"
+        if not confirm:
+            return Response(
+                {
+                    "message": "Preview. Resend with ?confirm=true to apply.",
+                },
+                status=status.HTTP_202_ACCEPTED,
+            )
+            
+        # Process the approval
+        with transaction.atomic():
+            task.status = Task.Status.APPROVED
+            task.reviewed_at = timezone.now()
+            task.save()
+            
+            # Log action
+            ReviewAction.objects.create(
+                task=task,
+                user=request.user if request.user.is_authenticated else None,
+                action=ReviewAction.Action.APPROVE,
+            )
+            
+        # Send to Monday.com
+        if not task.monday_item_id:
+            item_id = create_monday_item(task)
+            if item_id:
+                task.monday_item_id = item_id
+                task.posted_to_monday = True
+                task.save(update_fields=["monday_item_id", "posted_to_monday"])
+                logger.info(f"Task {task.id} successfully sent to Monday.com with item_id={item_id}")
+            else:
+                logger.error(f"Failed to send task {task.id} to Monday.com")
+            
+        return Response(TaskSerializer(task, context={"request": request}).data)
 
     @action(methods=["post"], detail=True, url_path="reject")
     def reject(self, request, pk=None):

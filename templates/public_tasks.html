@@ -17,14 +17,14 @@
 
     {% regroup tasks by meeting as meeting_list %}
     {% for meeting in meeting_list %}
-    <div class="mb-4">
+    <div class="mb-4" id="meeting-container-{{ meeting.grouper.id }}">
         <button type="button" class="w-full flex justify-between items-center bg-white border border-gray-200 rounded-lg px-4 py-3 hover:bg-gray-50 transition" onclick="toggleTasks('{{ meeting.grouper.id }}')">
-            <span class="font-medium">{{ meeting.grouper.title }} – {{ meeting.grouper.date|date:"Y-m-d H:i" }} ({{ meeting.list|length }} tasks)</span>
+            <span class="font-medium">{{ meeting.grouper.title }} – {{ meeting.grouper.date|date:"Y-m-d H:i" }} (<span id="task-count-{{ meeting.grouper.id }}">{{ meeting.list|length }}</span> tasks)</span>
             <svg xmlns="http://www.w3.org/2000/svg" id="arrow-{{ meeting.grouper.id }}" class="h-5 w-5 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
         </button>
         <div id="tasks-{{ meeting.grouper.id }}" class="hidden space-y-3 mt-2">
             {% for t in meeting.list %}
-            <div id="task-{{ t.id }}" class="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+            <div id="task-{{ t.id }}" class="bg-white border border-gray-200 rounded-lg p-4 shadow-sm" data-meeting-id="{{ meeting.grouper.id }}">
                 <div class="flex justify-between items-start">
                     <p class="text-lg font-semibold text-gray-900 max-w-xl" id="title-{{ t.id }}">{{ t.task_item|truncatechars:80 }}</p>
                     <div class="flex gap-2">
@@ -94,6 +94,28 @@ function toggleTasks(id) {
   arrow.classList.toggle('rotate-180');
 }
 
+function updateTaskCount(meetingId) {
+  // Get the task container
+  const taskContainer = document.getElementById('tasks-' + meetingId);
+  // Count remaining tasks in the container
+  const remainingTasks = taskContainer.querySelectorAll('[id^="task-"]').length;
+  // Update the task count display
+  const countElement = document.getElementById('task-count-' + meetingId);
+  if (countElement) {
+    countElement.textContent = remainingTasks;
+  }
+  
+  // If no tasks left, hide or update the meeting container
+  if (remainingTasks === 0) {
+    const meetingContainer = document.getElementById('meeting-container-' + meetingId);
+    if (meetingContainer) {
+      meetingContainer.innerHTML = `<div class="w-full bg-white border border-gray-200 rounded-lg px-4 py-3 text-gray-500">
+        <span class="font-medium">All tasks reviewed</span>
+      </div>`;
+    }
+  }
+}
+
 function openDeclineModal(id) {
   currentTaskId = id;
   document.getElementById('decline-modal').classList.remove('hidden');
@@ -135,11 +157,54 @@ function submitDecline() {
     return;
   }
   
-  htmx.ajax('POST', `/api/tasks/${currentTaskId}/reject/?confirm=true`, {
-    values: {reason}, 
-    target: `#task-${currentTaskId}`, 
-    swap: 'delete', 
-    headers: {'X-Public-UI': 'true'}
+  // Get the meeting ID before removing the task
+  const taskElement = document.getElementById(`task-${currentTaskId}`);
+  const meetingId = taskElement ? taskElement.getAttribute('data-meeting-id') : null;
+  
+  // Send the request to decline the task
+  fetch(`/api/tasks/${currentTaskId}/reject/?confirm=true`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Public-UI': 'true'
+    },
+    body: JSON.stringify({ reason })
+  })
+  .then(response => {
+    if (!response.ok) {
+      throw new Error('Failed to decline task');
+    }
+    return response.json();
+  })
+  .then(data => {
+    // Remove the task from the DOM
+    if (taskElement) {
+      taskElement.remove();
+      
+      // Update the task count
+      if (meetingId) {
+        updateTaskCount(meetingId);
+      }
+      
+      // Show success toast
+      Toastify({ 
+        text: 'Task declined successfully', 
+        duration: 3000, 
+        gravity: 'bottom', 
+        position: 'center',
+        backgroundColor: '#6B7280'
+      }).showToast();
+    }
+  })
+  .catch(error => {
+    console.error('Error:', error);
+    Toastify({ 
+      text: 'Error: ' + error.message, 
+      duration: 3000, 
+      gravity: 'bottom',
+      position: 'center', 
+      backgroundColor: '#EF4444'
+    }).showToast();
   });
   
   closeDeclineModal();
@@ -148,10 +213,53 @@ function submitDecline() {
 function submitApprove() {
   if (!currentTaskId) return;
   
-  htmx.ajax('POST', `/api/tasks/${currentTaskId}/approve/?confirm=true`, {
-    headers: {'X-Public-UI': 'true'}, 
-    target: `#task-${currentTaskId}`, 
-    swap: 'delete'
+  // Get the meeting ID before removing the task
+  const taskElement = document.getElementById(`task-${currentTaskId}`);
+  const meetingId = taskElement ? taskElement.getAttribute('data-meeting-id') : null;
+  
+  // Send the request to approve the task
+  fetch(`/api/tasks/${currentTaskId}/approve/?confirm=true`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Public-UI': 'true'
+    }
+  })
+  .then(response => {
+    if (!response.ok) {
+      throw new Error('Failed to approve task');
+    }
+    return response.json();
+  })
+  .then(data => {
+    // Remove the task from the DOM
+    if (taskElement) {
+      taskElement.remove();
+      
+      // Update the task count
+      if (meetingId) {
+        updateTaskCount(meetingId);
+      }
+      
+      // Show success toast
+      Toastify({ 
+        text: 'Task approved and sent to Monday.com', 
+        duration: 3000, 
+        gravity: 'bottom', 
+        position: 'center',
+        backgroundColor: '#10B981'
+      }).showToast();
+    }
+  })
+  .catch(error => {
+    console.error('Error:', error);
+    Toastify({ 
+      text: 'Error: ' + error.message, 
+      duration: 3000, 
+      gravity: 'bottom',
+      position: 'center', 
+      backgroundColor: '#EF4444'
+    }).showToast();
   });
   
   closeApproveModal();
@@ -183,34 +291,6 @@ document.addEventListener('keydown', function(e) {
     if (!document.getElementById('approve-modal').classList.contains('hidden')) {
       closeApproveModal();
     }
-  }
-});
-
-// Toasts
-document.body.addEventListener('htmx:afterRequest', evt => {
-  if (evt.detail.xhr.status === 200) {
-    const isApprove = evt.detail.requestConfig.path.includes('/approve/');
-    const isReject = evt.detail.requestConfig.path.includes('/reject/');
-    
-    let message = 'Success';
-    if (isApprove) message = 'Task approved and sent to Monday.com';
-    if (isReject) message = 'Task declined successfully';
-    
-    Toastify({ 
-      text: message, 
-      duration: 3000, 
-      gravity: 'bottom', 
-      position: 'center',
-      backgroundColor: isApprove ? '#10B981' : isReject ? '#6B7280' : '#0A57FF'
-    }).showToast();
-  } else if (evt.detail.xhr.status >= 400) {
-    Toastify({ 
-      text: 'Error: ' + (evt.detail.xhr.responseText || 'Something went wrong'), 
-      duration: 3000, 
-      gravity: 'bottom',
-      position: 'center', 
-      backgroundColor: '#EF4444'
-    }).showToast();
   }
 });
 </script>
