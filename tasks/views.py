@@ -257,11 +257,25 @@ class IngestView(APIView):
         if not tasks_data:
             return Response({"detail": "monday_tasks missing or empty"}, status=400)
 
-        # Early-exit idempotency: if any meeting_id in this payload is already stored, skip ingestion
+        # Get meeting IDs from the payload
         meeting_ids = {t.get("meeting_id") for t in tasks_data if t.get("meeting_id")}
-        if meeting_ids and Meeting.objects.filter(meeting_id__in=meeting_ids).exists():
-            logger.info("Ingest skipped: meetings %s already exist", ", ".join(sorted(meeting_ids)))
-            return Response({"detail": "already_ingested"}, status=200)
+        if not meeting_ids:
+            logger.warning("No meeting IDs found in payload")
+            return Response({"detail": "no_meeting_ids"}, status=400)
+            
+        # Check if we have any tasks for these meetings
+        # Instead of just checking if meetings exist, check if there are any tasks for these meetings
+        has_existing_tasks = False
+        if meeting_ids:
+            has_existing_tasks = Task.objects.filter(meeting__meeting_id__in=meeting_ids).exists()
+            
+        if has_existing_tasks:
+            logger.info("Ingest skipped: tasks for meetings %s already exist", ", ".join(sorted(meeting_ids)))
+            # Check if there's a force parameter to override this check
+            if request.query_params.get("force") == "true":
+                logger.info("Force flag detected, proceeding with ingestion despite existing tasks")
+            else:
+                return Response({"detail": "already_ingested"}, status=200)
 
         created = 0
         for t in tasks_data:
