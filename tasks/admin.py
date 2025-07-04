@@ -11,6 +11,7 @@ from django.contrib.admin.models import LogEntry, ADDITION, CHANGE, DELETION
 from django.contrib.contenttypes.models import ContentType
 from django.utils.translation import gettext_lazy as _
 from django.utils.encoding import force_str
+from django.contrib.admin import SimpleListFilter
 
 from .models import Meeting, Task, ReviewAction, PageLog, AppSetting, RawTranscript, ActionItem, SecurityQuestion, UserSecurityAnswer
 
@@ -112,8 +113,31 @@ class LoggingModelAdmin(admin.ModelAdmin):
 
 @admin.register(Meeting)
 class MeetingAdmin(LoggingModelAdmin):
-    list_display = ("title", "organizer_email", "date", "meeting_id")
-    search_fields = ("title", "organizer_email", "meeting_id")
+    list_display = ("title", "organizer_email", "formatted_date_display", "meeting_id", "execution_id", "formatted_generated_at")
+    list_filter = ("organizer_email",)
+    search_fields = ("title", "organizer_email", "meeting_id", "execution_id")
+    readonly_fields = ("formatted_date_display", "formatted_generated_at")
+    date_hierarchy = 'date'
+    
+    fieldsets = (
+        (None, {
+            'fields': ('title', 'organizer_email', 'date', 'meeting_id')
+        }),
+        ('Advanced', {
+            'fields': ('execution_id', 'generated_at'),
+            'classes': ('collapse',)
+        })
+    )
+    
+    def formatted_date_display(self, obj):
+        return obj.formatted_date()
+    formatted_date_display.short_description = "Meeting Date"
+    formatted_date_display.admin_order_field = "date"
+    
+    def formatted_generated_at(self, obj):
+        return obj.formatted_generated_at()
+    formatted_generated_at.short_description = "Generated At"
+    formatted_generated_at.admin_order_field = "generated_at"
 
 
 class BaseTaskAdmin(LoggingModelAdmin):
@@ -135,11 +159,108 @@ except admin.sites.NotRegistered:
     pass
 
 
+# Custom filter for meetings
+class MeetingFilter(SimpleListFilter):
+    title = 'Meeting'
+    parameter_name = 'meeting'
+    
+    def lookups(self, request, model_admin):
+        meetings = Meeting.objects.all().order_by('-date')
+        return [(meeting.id, f"{meeting.title} ({meeting.date.strftime('%b %d, %Y')})") for meeting in meetings]
+    
+    def queryset(self, request, queryset):
+        if self.value():
+            return queryset.filter(meeting__id=self.value())
+        return queryset
+
+
+# Custom filter for execution_id
+class ExecutionIDFilter(SimpleListFilter):
+    title = 'Execution ID'
+    parameter_name = 'execution_id'
+    
+    def lookups(self, request, model_admin):
+        # Get unique execution_ids from meetings
+        execution_ids = Meeting.objects.exclude(execution_id__isnull=True).exclude(execution_id='').values_list('execution_id', flat=True).distinct()
+        return [(execution_id, execution_id) for execution_id in execution_ids]
+    
+    def queryset(self, request, queryset):
+        if self.value():
+            return queryset.filter(meeting__execution_id=self.value())
+        return queryset
+
+
+# Custom filter for meeting_id
+class MeetingIDFilter(SimpleListFilter):
+    title = 'Meeting ID'
+    parameter_name = 'meeting_id'
+    
+    def lookups(self, request, model_admin):
+        # Get unique meeting_ids
+        meeting_ids = Meeting.objects.values_list('meeting_id', flat=True).distinct()
+        return [(meeting_id, meeting_id) for meeting_id in meeting_ids]
+    
+    def queryset(self, request, queryset):
+        if self.value():
+            return queryset.filter(meeting__meeting_id=self.value())
+        return queryset
+
+
+# Custom filter for organizer_email
+class OrganizerFilter(SimpleListFilter):
+    title = 'Organizer'
+    parameter_name = 'organizer'
+    
+    def lookups(self, request, model_admin):
+        # Get unique organizer emails
+        organizers = Meeting.objects.values_list('organizer_email', flat=True).distinct()
+        return [(organizer, organizer) for organizer in organizers]
+    
+    def queryset(self, request, queryset):
+        if self.value():
+            return queryset.filter(meeting__organizer_email=self.value())
+        return queryset
+
+
 @admin.register(ActionItem)
 class ActionItemAdmin(BaseTaskAdmin):
-    list_display = BaseTaskAdmin.list_display + ("status", "reviewed_at", "posted_to_monday", "admin_actions")
-    list_filter = ("status", "priority", "posted_to_monday")
+    """Admin interface for Tasks (via ActionItem proxy)."""
+
+    list_display = ("task_item_short", "meeting_display", "meeting_id_display", "organizer_display", "formatted_date_expected", "priority", "status", "reviewed_at", "posted_to_monday", "admin_actions")
+    list_filter = (MeetingFilter, MeetingIDFilter, ExecutionIDFilter, OrganizerFilter, "status", "priority", "posted_to_monday")
+    search_fields = ("task_item", "assignee_names", "brief_description", "meeting__title", "meeting__meeting_id", "meeting__execution_id", "meeting__organizer_email")
     readonly_fields = ('action_buttons',)
+    ordering = ("-meeting__date", "-created_at")
+    list_per_page = 50
+    date_hierarchy = 'date_expected'
+    list_display_links = ('task_item_short',)
+    
+    actions = ["approve_send_to_monday", "decline_tasks"]
+    
+    def task_item_short(self, obj):
+        return obj.task_item[:50] + "..." if len(obj.task_item) > 50 else obj.task_item
+    task_item_short.short_description = "Task"
+    task_item_short.admin_order_field = 'task_item'
+    
+    def meeting_display(self, obj):
+        return obj.meeting.title
+    meeting_display.short_description = "Meeting"
+    meeting_display.admin_order_field = "meeting__title"
+    
+    def meeting_id_display(self, obj):
+        return obj.meeting.meeting_id
+    meeting_id_display.short_description = "Meeting ID"
+    meeting_id_display.admin_order_field = "meeting__meeting_id"
+    
+    def organizer_display(self, obj):
+        return obj.meeting.organizer_email
+    organizer_display.short_description = "Organizer"
+    organizer_display.admin_order_field = "meeting__organizer_email"
+    
+    def formatted_date_expected(self, obj):
+        return obj.date_expected.strftime("%B %d, %Y")
+    formatted_date_expected.short_description = "Due Date"
+    formatted_date_expected.admin_order_field = "date_expected"
     
     fieldsets = (
         (None, {
@@ -158,8 +279,6 @@ class ActionItemAdmin(BaseTaskAdmin):
         }),
     )
 
-    actions = ["approve_send_to_monday", "decline_tasks"]
-    
     def admin_actions(self, obj):
         """Add action buttons to the list view."""
         if obj.status == Task.Status.PENDING:

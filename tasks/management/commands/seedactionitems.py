@@ -100,16 +100,46 @@ class Command(BaseCommand):
                 data = json.load(f)
             
             # Create or get meeting
-            meeting_date = datetime.fromtimestamp(int(data['meeting_date']) / 1000) if 'meeting_date' in data else timezone.now()
+            meeting_date = None
+            if 'meeting_date' in data:
+                try:
+                    # Convert from milliseconds timestamp to datetime
+                    meeting_date = datetime.fromtimestamp(int(data['meeting_date']) / 1000, tz=timezone.utc)
+                except (ValueError, TypeError):
+                    meeting_date = timezone.now()
+            else:
+                meeting_date = timezone.now()
+                
+            # Parse generated_at if available
+            generated_at = None
+            if 'generated_at' in data:
+                try:
+                    generated_at = datetime.fromisoformat(data['generated_at'].replace('Z', '+00:00'))
+                except (ValueError, TypeError, AttributeError):
+                    pass
             
             meeting, created = Meeting.objects.get_or_create(
                 meeting_id=data.get('meeting_id', f"meeting_{os.path.basename(file_path)}"),
                 defaults={
                     'title': data.get('meeting_title', 'Untitled Meeting'),
                     'organizer_email': data.get('meeting_organizer', 'unknown@example.com'),
-                    'date': meeting_date
+                    'date': meeting_date,
+                    'execution_id': data.get('execution_id'),
+                    'generated_at': generated_at
                 }
             )
+            
+            # Update meeting with execution_id and generated_at if they weren't set before
+            if created is False:
+                update_fields = []
+                if data.get('execution_id') and not meeting.execution_id:
+                    meeting.execution_id = data.get('execution_id')
+                    update_fields.append('execution_id')
+                if generated_at and not meeting.generated_at:
+                    meeting.generated_at = generated_at
+                    update_fields.append('generated_at')
+                if update_fields:
+                    meeting.save(update_fields=update_fields)
             
             if created:
                 meetings_created += 1
@@ -124,9 +154,15 @@ class Command(BaseCommand):
                 date_expected = None
                 if 'date_expected' in task_data:
                     try:
+                        # First try standard ISO format
                         date_expected = datetime.strptime(task_data['date_expected'], '%Y-%m-%d').date()
                     except ValueError:
-                        date_expected = timezone.now().date()
+                        try:
+                            # Try to parse from a more human-readable format
+                            date_expected = datetime.strptime(task_data['date_expected'], '%B %d, %Y').date()
+                        except ValueError:
+                            # If all parsing fails, use current date
+                            date_expected = timezone.now().date()
                 else:
                     date_expected = timezone.now().date()
                 

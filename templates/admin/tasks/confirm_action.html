@@ -82,7 +82,7 @@
                 <div class="meta-item"><strong>Meeting:</strong> {{ task.meeting.title }}</div>
                 <div class="meta-item"><strong>Assignees:</strong> {{ task.assignee_names }}</div>
                 <div class="meta-item"><strong>Priority:</strong> {{ task.priority }}</div>
-                <div class="meta-item"><strong>Due:</strong> {{ task.date_expected }}</div>
+                <div class="meta-item"><strong>Due:</strong> {{ task.date_expected|date:"F jS, Y" }}</div>
             </div>
             <div class="task-description">
                 <strong>Description:</strong>

@@ -17,6 +17,8 @@ class Meeting(models.Model):
     title = models.CharField(max_length=512)
     organizer_email = models.EmailField()
     date = models.DateTimeField()
+    execution_id = models.CharField(max_length=255, blank=True, null=True)
+    generated_at = models.DateTimeField(blank=True, null=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -24,7 +26,17 @@ class Meeting(models.Model):
         ordering = ["-date"]
 
     def __str__(self) -> str:  # pragma: no cover
-        return f"{self.title} ({self.date:%Y-%m-%d})"
+        return f"{self.title} ({self.date:%B %d, %Y})"
+
+    def formatted_date(self):
+        """Return date in human-readable format."""
+        return self.date.strftime("%B %d, %Y %H:%M")
+
+    def formatted_generated_at(self):
+        """Return generated_at in human-readable format."""
+        if self.generated_at:
+            return self.generated_at.strftime("%B %d, %Y %H:%M")
+        return ""
 
 
 class Task(models.Model):
@@ -63,7 +75,7 @@ class Task(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["-created_at"]
+        ordering = ["-meeting__date", "-created_at"]
 
     def __str__(self) -> str:  # pragma: no cover
         return f"{self.task_item[:50]}… ({self.get_status_display()})"

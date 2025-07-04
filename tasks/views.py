@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 import logging
+from datetime import datetime
 
 from django.db import transaction
 from rest_framework import mixins, status, viewsets
@@ -40,7 +41,7 @@ class MeetingViewSet(mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.
 class TaskViewSet(viewsets.ModelViewSet):
     """CRUD + approve/reject for tasks (publicly accessible)."""
 
-    queryset = Task.objects.select_related("meeting")
+    queryset = Task.objects.select_related("meeting").order_by("-meeting__date", "-created_at")
     serializer_class = TaskSerializer
     permission_classes = [AllowAny]
     authentication_classes = []  # Disable SessionAuthentication to avoid CSRF for public calls
@@ -237,7 +238,7 @@ class TaskViewSet(viewsets.ModelViewSet):
 class ApprovedPublicViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     """Public-facing read-only endpoint for approved tasks (no auth)."""
 
-    queryset = Task.objects.filter(status=Task.Status.APPROVED).select_related("meeting")
+    queryset = Task.objects.filter(status=Task.Status.APPROVED).select_related("meeting").order_by("-meeting__date", "-created_at")
     serializer_class = TaskSerializer
     permission_classes = [AllowAny]
 
@@ -263,47 +264,121 @@ class IngestView(APIView):
             logger.warning("No meeting IDs found in payload")
             return Response({"detail": "no_meeting_ids"}, status=400)
             
-        # Check if we have any tasks for these meetings
-        # Instead of just checking if meetings exist, check if there are any tasks for these meetings
-        has_existing_tasks = False
-        if meeting_ids:
-            has_existing_tasks = Task.objects.filter(meeting__meeting_id__in=meeting_ids).exists()
-            
-        if has_existing_tasks:
-            logger.info("Ingest skipped: tasks for meetings %s already exist", ", ".join(sorted(meeting_ids)))
-            # Check if there's a force parameter to override this check
-            if request.query_params.get("force") == "true":
-                logger.info("Force flag detected, proceeding with ingestion despite existing tasks")
-            else:
-                return Response({"detail": "already_ingested"}, status=200)
-
         created = 0
+        updated = 0
+        
         for t in tasks_data:
+            meeting_id = t.get("meeting_id")
+            if not meeting_id:
+                continue
+                
+            # Get or create the meeting
+            meeting_date = timezone.now()
+            if 'meeting_date' in payload:
+                try:
+                    # Convert from milliseconds timestamp to datetime
+                    if isinstance(payload['meeting_date'], str) and payload['meeting_date'].isdigit():
+                        meeting_date = datetime.fromtimestamp(int(payload['meeting_date']) / 1000, tz=timezone.utc)
+                    elif isinstance(payload['meeting_date'], int):
+                        meeting_date = datetime.fromtimestamp(payload['meeting_date'] / 1000, tz=timezone.utc)
+                except (ValueError, TypeError):
+                    pass
+            
+            # Parse generated_at if available
+            generated_at = None
+            if 'generated_at' in payload:
+                try:
+                    generated_at = datetime.fromisoformat(payload['generated_at'].replace('Z', '+00:00'))
+                except (ValueError, TypeError, AttributeError):
+                    pass
+
             meeting_obj, _ = Meeting.objects.get_or_create(
-                meeting_id=t.get("meeting_id"),
+                meeting_id=meeting_id,
                 defaults={
                     "title": t.get("meeting_title", "Untitled"),
                     "organizer_email": t.get("meeting_organizer", "unknown@example.com"),
-                    "date": payload.get("meeting_date", timezone.now()),
+                    "date": meeting_date,
+                    "execution_id": payload.get("execution_id"),
+                    "generated_at": generated_at,
                 },
             )
-            task_obj, created_flag = Task.objects.get_or_create(
-                meeting=meeting_obj,
-                task_item=t.get("task_item"),
-                assignee_names=t.get("assignee(s)_full_names", ""),
-                assignee_emails=t.get("assignee_emails", ""),
-                priority=t.get("priority", Task.Priority.MEDIUM),
-                brief_description=t.get("brief_description", ""),
-                date_expected=t.get("date_expected", timezone.now().date()),
-                defaults={"source_payload": t},
-            )
-            created += 1
-            # store auto_approved flag but leave status as pending
-            if t.get("approved") and not task_obj.auto_approved:
-                task_obj.auto_approved = True
-                task_obj.save(update_fields=["auto_approved"])
+            
+            # Update meeting with execution_id and generated_at if they weren't set before
+            if (payload.get("execution_id") and not meeting_obj.execution_id) or \
+               (generated_at and not meeting_obj.generated_at):
+                meeting_obj.execution_id = payload.get("execution_id", meeting_obj.execution_id)
+                if generated_at:
+                    meeting_obj.generated_at = generated_at
+                meeting_obj.save(update_fields=['execution_id', 'generated_at'])
+            
+            # Try to find an existing task
+            task_item = t.get("task_item")
+            existing_task = Task.objects.filter(
+                meeting=meeting_obj, 
+                task_item=task_item
+            ).first()
+            
+            if existing_task:
+                # Update the existing task with new data
+                existing_task.assignee_names = t.get("assignee(s)_full_names", existing_task.assignee_names)
+                existing_task.assignee_emails = t.get("assignee_emails", existing_task.assignee_emails)
+                existing_task.priority = t.get("priority", existing_task.priority)
+                existing_task.brief_description = t.get("brief_description", existing_task.brief_description)
+                
+                # Handle date_expected parsing
+                if t.get("date_expected"):
+                    try:
+                        # Try standard ISO format
+                        date_expected = datetime.strptime(t.get("date_expected"), '%Y-%m-%d').date()
+                        existing_task.date_expected = date_expected
+                    except ValueError:
+                        try:
+                            # Try human-readable format
+                            date_expected = datetime.strptime(t.get("date_expected"), '%B %d, %Y').date()
+                            existing_task.date_expected = date_expected
+                        except ValueError:
+                            # Keep existing date if parsing fails
+                            pass
+                
+                existing_task.source_payload = t
+                
+                # Only update auto_approved if it's explicitly set in the payload
+                if t.get("approved") is not None:
+                    existing_task.auto_approved = t.get("approved")
+                    
+                existing_task.save()
+                updated += 1
+                logger.info(f"Updated task: {task_item[:50]}...")
+            else:
+                # Create a new task
+                date_expected = timezone.now().date()
+                if t.get("date_expected"):
+                    try:
+                        # Try standard ISO format
+                        date_expected = datetime.strptime(t.get("date_expected"), '%Y-%m-%d').date()
+                    except ValueError:
+                        try:
+                            # Try human-readable format
+                            date_expected = datetime.strptime(t.get("date_expected"), '%B %d, %Y').date()
+                        except ValueError:
+                            # Keep default if parsing fails
+                            pass
+                
+                task_obj = Task.objects.create(
+                    meeting=meeting_obj,
+                    task_item=task_item,
+                    assignee_names=t.get("assignee(s)_full_names", ""),
+                    assignee_emails=t.get("assignee_emails", ""),
+                    priority=t.get("priority", Task.Priority.MEDIUM),
+                    brief_description=t.get("brief_description", ""),
+                    date_expected=date_expected,
+                    source_payload=t,
+                    auto_approved=t.get("approved", False)
+                )
+                created += 1
+                logger.info(f"Created task: {task_item[:50]}...")
 
-        return Response({"created": created})
+        return Response({"created": created, "updated": updated})
 
 
 class HomeView(TemplateView):
@@ -321,7 +396,7 @@ class PublicActionItemView(ListView):
 
         cutoff = timezone.now() - timedelta(hours=24)
         # Show all tasks, including those that have been reviewed
-        return Task.objects.select_related("meeting")
+        return Task.objects.select_related("meeting").order_by("-meeting__date", "-created_at")
 
 
 @csrf_exempt

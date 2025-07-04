@@ -19,7 +19,7 @@
     {% for meeting in meeting_list %}
     <div class="mb-4" id="meeting-container-{{ meeting.grouper.id }}">
         <button type="button" class="w-full flex justify-between items-center bg-white border border-gray-200 rounded-lg px-4 py-3 hover:bg-gray-50 transition" onclick="toggleTasks('{{ meeting.grouper.id }}')">
-            <span class="font-medium">{{ meeting.grouper.title }} – {{ meeting.grouper.date|date:"Y-m-d H:i" }} (<span id="task-count-{{ meeting.grouper.id }}">{{ meeting.list|length }}</span> tasks)</span>
+            <span class="font-medium">{{ meeting.grouper.title }} – {{ meeting.grouper.date|date:"F jS, Y H:i" }} (<span id="task-count-{{ meeting.grouper.id }}">{{ meeting.list|length }}</span> tasks)</span>
             <svg xmlns="http://www.w3.org/2000/svg" id="arrow-{{ meeting.grouper.id }}" class="h-5 w-5 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
         </button>
         <div id="tasks-{{ meeting.grouper.id }}" class="hidden space-y-3 mt-2">
@@ -34,7 +34,7 @@
                 </div>
                 <div class="mt-1 text-sm font-medium flex flex-wrap gap-4 items-center">
                     <span>Assignees: {{ t.assignee_names|default:"—" }}</span>
-                    <span>Due: {{ t.date_expected }}</span>
+                    <span>Due: {{ t.date_expected|date:"F jS, Y" }}</span>
                     <span class="flex items-center gap-1">Priority: <span class="px-2 py-0.5 rounded-full text-white text-xs {% if t.priority == 'High' %}bg-red-600{% elif t.priority == 'Medium' %}bg-amber-500{% else %}bg-gray-500{% endif %}">{{ t.priority }}</span></span>
                     {% if t.posted_to_monday %}
                     <span class="px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 text-xs flex items-center">

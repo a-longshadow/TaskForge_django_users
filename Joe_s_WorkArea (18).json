@@ -1,4 +1,4 @@
- {
+{
   "name": "Joe's WorkArea",
   "nodes": [
     {
@@ -307,7 +307,7 @@
       "parameters": {
         "content": "🔴HITL Section",
         "height": 820,
-        "width": 1660,
+        "width": 2160,
         "color": 7
       },
       "type": "n8n-nodes-base.stickyNote",
@@ -537,7 +537,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// UNIFIED Build_Payload_GraphQL - Handles Multiple Meetings & Serves All Downstream Nodes\n// Removes emojis from emails, accurate data extraction, proper Railway payload\n\ntry {\n  const tasks = items || [];\n  console.log(`📋 Processing ${tasks.length} tasks for HITL approval`);\n  \n  if (tasks.length === 0) {\n    throw new Error('No tasks received from Transform node');\n  }\n  \n  // GROUP TASKS BY MEETING\n  const meetingGroups = {};\n  let totalTasks = 0;\n  \n  tasks.forEach(task => {\n    const meetingId = task.json?.meeting_id || 'unknown';\n    const meetingTitle = task.json?.meeting_title || 'Unknown Meeting';\n    const meetingOrganizer = task.json?.meeting_organizer || 'Unknown';\n    const meetingDate = task.json?.meeting_date || new Date().toISOString();\n    \n    if (!meetingGroups[meetingId]) {\n      meetingGroups[meetingId] = {\n        meeting_title: meetingTitle,\n        meeting_organizer: meetingOrganizer,\n        meeting_date: meetingDate,\n        meeting_id: meetingId,\n        tasks: []\n      };\n    }\n    \n    meetingGroups[meetingId].tasks.push({\n      task_item: task.json?.task_item || `Task ${totalTasks + 1}`,\n      'assignee(s)_full_names': task.json?.['assignee(s)_full_names'] || 'Unassigned',\n      assignee_emails: task.json?.assignee_emails || '',\n      priority: task.json?.priority || 'Medium',\n      brief_description: task.json?.brief_description || 'No description',\n      date_expected: task.json?.date_expected || new Date().toISOString().split('T')[0],\n      meeting_title: meetingTitle,\n      meeting_organizer: meetingOrganizer,\n      meeting_date: meetingDate,\n      meeting_id: meetingId\n    });\n    \n    totalTasks++;\n  });\n  \n  const meetings = Object.values(meetingGroups);\n  const execId = `exec_${Date.now()}`;\n  \n  console.log(`🎯 Found ${meetings.length} meetings with ${totalTasks} total tasks`);\n  meetings.forEach(meeting => {\n    console.log(`   - \"${meeting.meeting_title}\" by ${meeting.meeting_organizer}: ${meeting.tasks.length} tasks`);\n  });\n  \n  // FLATTEN ALL TASKS FOR MONDAY.COM\n  const allMondayTasks = [];\n  meetings.forEach(meeting => {\n    allMondayTasks.push(...meeting.tasks);\n  });\n  \n  // CREATE APPROVAL URL\n  const approvalUrl = `https://web-production-c8f1d.up.railway.app?exec_id=${execId}`;\n  \n  // GENERATE MEETING SUMMARY FOR NOTIFICATIONS\n  let meetingSummary, organizerSummary;\n  if (meetings.length === 1) {\n    meetingSummary = meetings[0].meeting_title;\n    organizerSummary = meetings[0].meeting_organizer;\n  } else {\n    meetingSummary = `${meetings.length} meetings (${meetings.map(m => m.meeting_title).join(', ')})`;\n    organizerSummary = `Multiple organizers`;\n  }\n  \n  // TELEGRAM MESSAGE (with emojis)\n  const telegramMessage = `🔥 TaskForge Approval Required\n\n📋 Meeting: ${meetingSummary}\n👤 Organizer: ${organizerSummary}\n📊 Tasks: ${totalTasks} action items\n🆔 ID: ${execId}\n\n👆 CLICK TO APPROVE:\n${approvalUrl}\n\n⏰ Time-sensitive - Please review promptly`;\n\n  // EMAIL CONTENT (NO EMOJIS, clean formatting)\n  const emailSubject = `TaskForge: ${totalTasks} Action Items Need Approval`;\n  \n  let emailMeetingDetails = '';\n  if (meetings.length === 1) {\n    emailMeetingDetails = `\n<h3>Meeting Details</h3>\n<table style=\"font-family: Arial, sans-serif; border-collapse: collapse; width: 100%;\">\n  <tr><td style=\"padding: 8px; border: 1px solid #ddd;\"><strong>Meeting:</strong></td><td style=\"padding: 8px; border: 1px solid #ddd;\">${meetings[0].meeting_title}</td></tr>\n  <tr><td style=\"padding: 8px; border: 1px solid #ddd;\"><strong>Organizer:</strong></td><td style=\"padding: 8px; border: 1px solid #ddd;\">${meetings[0].meeting_organizer}</td></tr>\n  <tr><td style=\"padding: 8px; border: 1px solid #ddd;\"><strong>Tasks:</strong></td><td style=\"padding: 8px; border: 1px solid #ddd;\">${totalTasks} action items</td></tr>\n  <tr><td style=\"padding: 8px; border: 1px solid #ddd;\"><strong>Execution ID:</strong></td><td style=\"padding: 8px; border: 1px solid #ddd;\">${execId}</td></tr>\n</table>`;\n  } else {\n    emailMeetingDetails = `\n<h3>Meeting Details</h3>\n<p><strong>Multiple Meetings:</strong> ${meetings.length} meetings</p>\n<ul>\n${meetings.map(meeting => \n  `<li><strong>${meeting.meeting_title}</strong> by ${meeting.meeting_organizer} (${meeting.tasks.length} tasks)</li>`\n).join('')}\n</ul>\n<p><strong>Total Tasks:</strong> ${totalTasks} action items</p>\n<p><strong>Execution ID:</strong> ${execId}</p>`;\n  }\n  \n  const emailHtml = `\n<div style=\"font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;\">\n  <div style=\"background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; text-align: center;\">\n    <h1 style=\"margin: 0; font-size: 24px;\">TaskForge Approval Required</h1>\n  </div>\n  \n  ${emailMeetingDetails}\n  \n  <div style=\"text-align: center; margin: 30px 0;\">\n    <a href=\"${approvalUrl}\" style=\"background: #28a745; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-size: 16px; font-weight: bold;\">APPROVE TASKS</a>\n  </div>\n  \n  <p style=\"color: #dc3545; text-align: center; font-weight: bold;\">Time-sensitive approval required</p>\n  <p style=\"color: #666; font-size: 12px; text-align: center;\">This link will expire after use for security</p>\n</div>`;\n\n  // RAILWAY PAYLOAD (for HTTP Request node) - Fixed to match server.py expectations\n  const railwayPayload = {\n    execution_id: execId,\n    monday_tasks: allMondayTasks,\n    meeting_title: meetingSummary,\n    meeting_organizer: organizerSummary,\n    total_tasks: totalTasks,\n    created_at: new Date().toISOString(),\n    // Additional fields for Railway compatibility\n    meetings: meetings,\n    meeting_count: meetings.length,\n    approval_url: approvalUrl,\n    status: 'pending'\n  };\n\n  // MEETING DATA FOR BUILD PAYLOAD NODE\n  const meetingData = meetings.length === 1 ? {\n    title: meetings[0].meeting_title,\n    organizer: meetings[0].meeting_organizer,\n    date: meetings[0].meeting_date,\n    id: meetings[0].meeting_id,\n    summary: `Meeting with ${meetings[0].tasks.length} action items`\n  } : {\n    title: `${meetings.length} Meetings`,\n    organizer: 'Multiple',\n    date: new Date().toISOString(),\n    id: execId,\n    summary: `${meetings.length} meetings with ${totalTasks} total action items`\n  };\n\n  console.log(`✅ Generated unified payload:`);\n  console.log(`   - Telegram: ${meetingSummary} (${totalTasks} tasks)`);\n  console.log(`   - Email: Clean HTML format, no emojis`);\n  console.log(`   - Railway: ${Object.keys(railwayPayload).length} fields`);\n  console.log(`   - Build Payload: Meeting data prepared`);\n\n  // RETURN UNIFIED OUTPUT FOR ALL 3 DOWNSTREAM NODES\n  return [{\n    json: {\n      // FOR TELEGRAM NODE\n      telegram_message: telegramMessage,\n      \n      // FOR GMAIL NODE (clean, no emojis)\n      email_subject: emailSubject,\n      email_html: emailHtml,\n      \n      // FOR HTTP REQUEST NODE (Railway storage)\n      railway_payload: railwayPayload,\n      \n      // FOR BUILD PAYLOAD NODE (True HITL)\n      execution_id: execId,\n      monday_tasks: allMondayTasks,\n      meeting_title: meetingSummary,\n      meeting_organizer: organizerSummary,\n      meeting_date: meetings[0]?.meeting_date || new Date().toISOString(),\n      meeting_id: meetings[0]?.meeting_id || execId,\n      total_tasks: totalTasks,\n      meeting_count: meetings.length,\n      \n      approval: {\n        execution_id: execId,\n        status: 'pending'\n      },\n      \n      meeting_data: meetingData,\n      \n      // DEBUGGING INFO\n      debug_info: {\n        meetings_processed: meetings.length,\n        total_tasks: totalTasks,\n        meeting_breakdown: meetings.map(m => ({\n          title: m.meeting_title,\n          organizer: m.meeting_organizer,\n          task_count: m.tasks.length\n        }))\n      }\n    }\n  }];\n\n} catch (error) {\n  console.error('❌ Build_Payload_GraphQL Error:', error.message);\n  \n  // Emergency fallback\n  const execId = `error_${Date.now()}`;\n  return [{\n    json: {\n      telegram_message: `🚨 TaskForge Error: ${error.message}`,\n      email_subject: 'TaskForge Error',\n      email_html: `<h2>TaskForge Error</h2><p>${error.message}</p><p>Please check the workflow configuration.</p>`,\n      railway_payload: {\n        execution_id: execId,\n        error: error.message,\n        status: 'error'\n      },\n      execution_id: execId,\n      monday_tasks: [],\n      error: error.message\n    }\n  }];\n}"
+        "jsCode": "// UNIFIED Build_Payload_GraphQL - Handles Multiple Meetings & Serves All Downstream Nodes\n// Removes emojis from emails, accurate data extraction, proper Railway payload\n\ntry {\n  const tasks = items || [];\n  console.log(`📋 Processing ${tasks.length} tasks for HITL review`);\n  \n  if (tasks.length === 0) {\n    throw new Error('No tasks received from Transform node');\n  }\n  \n  // GROUP TASKS BY MEETING\n  const meetingGroups = {};\n  let totalTasks = 0;\n  \n  tasks.forEach(task => {\n    const meetingId = task.json?.meeting_id || 'unknown';\n    const meetingTitle = task.json?.meeting_title || 'Unknown Meeting';\n    const meetingOrganizer = task.json?.meeting_organizer || 'Unknown';\n    const meetingDate = task.json?.meeting_date || new Date().toISOString();\n    \n    if (!meetingGroups[meetingId]) {\n      meetingGroups[meetingId] = {\n        meeting_title: meetingTitle,\n        meeting_organizer: meetingOrganizer,\n        meeting_date: meetingDate,\n        meeting_id: meetingId,\n        tasks: []\n      };\n    }\n    \n    meetingGroups[meetingId].tasks.push({\n      task_item: task.json?.task_item || `Task ${totalTasks + 1}`,\n      'assignee(s)_full_names': task.json?.['assignee(s)_full_names'] || 'Unassigned',\n      assignee_emails: task.json?.assignee_emails || '',\n      priority: task.json?.priority || 'Medium',\n      brief_description: task.json?.brief_description || 'No description',\n      date_expected: task.json?.date_expected || new Date().toISOString().split('T')[0],\n      meeting_title: meetingTitle,\n      meeting_organizer: meetingOrganizer,\n      meeting_date: meetingDate,\n      meeting_id: meetingId\n    });\n    \n    totalTasks++;\n  });\n  \n  const meetings = Object.values(meetingGroups);\n  const execId = `exec_${Date.now()}`;\n  \n  console.log(`🎯 Found ${meetings.length} meetings with ${totalTasks} total tasks`);\n  meetings.forEach(meeting => {\n    console.log(`   - \"${meeting.meeting_title}\" by ${meeting.meeting_organizer}: ${meeting.tasks.length} tasks`);\n  });\n  \n  // FLATTEN ALL TASKS FOR MONDAY.COM\n  const allMondayTasks = [];\n  meetings.forEach(meeting => {\n    allMondayTasks.push(...meeting.tasks);\n  });\n  \n  // CREATE APPROVAL URL\n  const approvalUrl = `https://web-production-c8f1d.up.railway.app?exec_id=${execId}`;\n  \n  // GENERATE MEETING SUMMARY FOR NOTIFICATIONS\n  let meetingSummary, organizerSummary;\n  if (meetings.length === 1) {\n    meetingSummary = meetings[0].meeting_title;\n    organizerSummary = meetings[0].meeting_organizer;\n  } else {\n    meetingSummary = `${meetings.length} meetings (${meetings.map(m => m.meeting_title).join(', ')})`;\n    organizerSummary = `Multiple organizers`;\n  }\n  \n  // TELEGRAM MESSAGE (with emojis)\n  const telegramMessage = `🔥 TaskForge Review Required\n\n📋 Meeting: ${meetingSummary}\n👤 Organizer: ${organizerSummary}\n📊 Tasks: ${totalTasks} action items\n🆔 ID: ${execId}\n\n👆 CLICK TO APPROVE:\n${approvalUrl}\n\n⏰ Time-sensitive - Please review promptly`;\n\n  // EMAIL CONTENT (NO EMOJIS, clean formatting)\n  const emailSubject = `TaskForge: ${totalTasks} Action Items Need Review`;\n  \n  let emailMeetingDetails = '';\n  if (meetings.length === 1) {\n    emailMeetingDetails = `\n<h3>Meeting Details</h3>\n<table style=\"font-family: Arial, sans-serif; border-collapse: collapse; width: 100%;\">\n  <tr><td style=\"padding: 8px; border: 1px solid #ddd;\"><strong>Meeting:</strong></td><td style=\"padding: 8px; border: 1px solid #ddd;\">${meetings[0].meeting_title}</td></tr>\n  <tr><td style=\"padding: 8px; border: 1px solid #ddd;\"><strong>Organizer:</strong></td><td style=\"padding: 8px; border: 1px solid #ddd;\">${meetings[0].meeting_organizer}</td></tr>\n  <tr><td style=\"padding: 8px; border: 1px solid #ddd;\"><strong>Tasks:</strong></td><td style=\"padding: 8px; border: 1px solid #ddd;\">${totalTasks} action items</td></tr>\n  <tr><td style=\"padding: 8px; border: 1px solid #ddd;\"><strong>Execution ID:</strong></td><td style=\"padding: 8px; border: 1px solid #ddd;\">${execId}</td></tr>\n</table>`;\n  } else {\n    emailMeetingDetails = `\n<h3>Meeting Details</h3>\n<p><strong>Multiple Meetings:</strong> ${meetings.length} meetings</p>\n<ul>\n${meetings.map(meeting => \n  `<li><strong>${meeting.meeting_title}</strong> by ${meeting.meeting_organizer} (${meeting.tasks.length} tasks)</li>`\n).join('')}\n</ul>\n<p><strong>Total Tasks:</strong> ${totalTasks} action items</p>\n<p><strong>Execution ID:</strong> ${execId}</p>`;\n  }\n  \n  const emailHtml = `\n<div style=\"font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;\">\n  <div style=\"background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; text-align: center;\">\n    <h1 style=\"margin: 0; font-size: 24px;\">TaskForge Review Required</h1>\n  </div>\n  \n  ${emailMeetingDetails}\n  \n  <div style=\"text-align: center; margin: 30px 0;\">\n    <a href=\"${approvalUrl}\" style=\"background: #28a745; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-size: 16px; font-weight: bold;\">REVIEW TASKS</a>\n  </div>\n  \n  <p style=\"color: #dc3545; text-align: center; font-weight: bold;\">Time-sensitive review required</p>\n  <p style=\"color: #666; font-size: 12px; text-align: center;\">This link will expire after use for security</p>\n</div>`;\n\n  // RAILWAY PAYLOAD (for HTTP Request node) - Fixed to match server.py expectations\n  const railwayPayload = {\n    execution_id: execId,\n    monday_tasks: allMondayTasks,\n    meeting_title: meetingSummary,\n    meeting_organizer: organizerSummary,\n    total_tasks: totalTasks,\n    created_at: new Date().toISOString(),\n    // Additional fields for Railway compatibility\n    meetings: meetings,\n    meeting_count: meetings.length,\n    approval_url: approvalUrl,\n    status: 'pending'\n  };\n\n  // MEETING DATA FOR BUILD PAYLOAD NODE\n  const meetingData = meetings.length === 1 ? {\n    title: meetings[0].meeting_title,\n    organizer: meetings[0].meeting_organizer,\n    date: meetings[0].meeting_date,\n    id: meetings[0].meeting_id,\n    summary: `Meeting with ${meetings[0].tasks.length} action items`\n  } : {\n    title: `${meetings.length} Meetings`,\n    organizer: 'Multiple',\n    date: new Date().toISOString(),\n    id: execId,\n    summary: `${meetings.length} meetings with ${totalTasks} total action items`\n  };\n\n  console.log(`✅ Generated unified payload:`);\n  console.log(`   - Telegram: ${meetingSummary} (${totalTasks} tasks)`);\n  console.log(`   - Email: Clean HTML format, no emojis`);\n  console.log(`   - Railway: ${Object.keys(railwayPayload).length} fields`);\n  console.log(`   - Build Payload: Meeting data prepared`);\n\n  // RETURN UNIFIED OUTPUT FOR ALL 3 DOWNSTREAM NODES\n  return [{\n    json: {\n      // FOR TELEGRAM NODE\n      telegram_message: telegramMessage,\n      \n      // FOR GMAIL NODE (clean, no emojis)\n      email_subject: emailSubject,\n      email_html: emailHtml,\n      \n      // FOR HTTP REQUEST NODE (Railway storage)\n      railway_payload: railwayPayload,\n      \n      // FOR BUILD PAYLOAD NODE (True HITL)\n      execution_id: execId,\n      monday_tasks: allMondayTasks,\n      meeting_title: meetingSummary,\n      meeting_organizer: organizerSummary,\n      meeting_date: meetings[0]?.meeting_date || new Date().toISOString(),\n      meeting_id: meetings[0]?.meeting_id || execId,\n      total_tasks: totalTasks,\n      meeting_count: meetings.length,\n      \n      approval: {\n        execution_id: execId,\n        status: 'pending'\n      },\n      \n      meeting_data: meetingData,\n      \n      // DEBUGGING INFO\n      debug_info: {\n        meetings_processed: meetings.length,\n        total_tasks: totalTasks,\n        meeting_breakdown: meetings.map(m => ({\n          title: m.meeting_title,\n          organizer: m.meeting_organizer,\n          task_count: m.tasks.length\n        }))\n      }\n    }\n  }];\n\n} catch (error) {\n  console.error('❌ Build_Payload_GraphQL Error:', error.message);\n  \n  // Emergency fallback\n  const execId = `error_${Date.now()}`;\n  return [{\n    json: {\n      telegram_message: `🚨 TaskForge Error: ${error.message}`,\n      email_subject: 'TaskForge Error',\n      email_html: `<h2>TaskForge Error</h2><p>${error.message}</p><p>Please check the workflow configuration.</p>`,\n      railway_payload: {\n        execution_id: execId,\n        error: error.message,\n        status: 'error'\n      },\n      execution_id: execId,\n      monday_tasks: [],\n      error: error.message\n    }\n  }];\n}"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -578,13 +578,13 @@
     },
     {
       "parameters": {
-        "jsCode": "/****************************************************************\n * BUILD PAYLOAD  –  GDrive  ❙  Monday.com\n * INPUT  : HTTP approval response → one flat array of tasks\n * OUTPUT : mixed list\n *          – itemType === 'drive_file'  →  to Google Drive node\n *          – itemType === 'monday_task' →  to Monday.com node\n ****************************************************************/\n\ntry {\n  /* ---------- 1.  Sanity-check inbound data ---------- */\n  const root = items[0]?.json || {};\n  const executionId   = root.execution_id;\n  const approvedTasks = root.approved_monday_tasks || [];\n\n  if (!executionId)   throw new Error('execution_id missing from payload');\n  if (!approvedTasks.length)\n    throw new Error('approved_monday_tasks array empty – nothing to create');\n\n  /* ---------- 2.  Group tasks per meeting ---------- */\n  const buckets = {};                     // meeting_id → { …, tasks[] }\n\n  approvedTasks.forEach(t => {\n    const mId    = t.meeting_id || 'unknown';\n    const bucket = buckets[mId] ||= {\n      meeting_id        : mId,\n      meeting_title     : t.meeting_title     || 'Untitled Meeting',\n      meeting_organizer : t.meeting_organizer || 'unknown@unknown',\n      meeting_date      : t.meeting_date      || Date.now(),\n      execution_id      : executionId,\n      tasks             : [],\n      total_tasks       : 0,\n      generated_at      : new Date().toISOString()\n    };\n    bucket.tasks.push({ ...t });          // keep full task for archive\n    bucket.total_tasks++;\n  });\n\n  /* ---------- 3.  Helpers ---------- */\n  const safeName = s =>\n    (s || 'Untitled')\n      .replace(/[\\\\/:*?\"<>|]+/g, '_')\n      .replace(/\\s+/g, '_')\n      .substring(0, 80);\n\n  /* ---------- 4.  Build outbound item list ---------- */\n  const out = [];\n\n  /* 4-A  Google-Drive items  (one per meeting) */\n  Object.values(buckets).forEach(b => {\n    out.push({\n      json: {\n        ...b,                                           // meeting + tasks\n        filename : `${safeName(b.meeting_title)}_${b.meeting_id}_ACTION_ITEMS.json`,\n        itemType : 'drive_file'                         // marker for humans\n      }\n    });\n  });\n\n  /* 4-B  Monday.com items  (one per task) */\n  approvedTasks.forEach(t => {\n    out.push({\n      json: {\n        task_item                  : t.task_item,\n        'assignee(s)_full_names'   : t['assignee(s)_full_names'],\n        assignee_emails            : t.assignee_emails,\n        priority                   : t.priority,\n        brief_description          : t.brief_description,\n        date_expected              : t.date_expected,\n        // Optional context fields – harmless to Monday but useful elsewhere\n        meeting_title              : t.meeting_title,\n        meeting_id                 : t.meeting_id,\n        execution_id               : executionId,\n        itemType                   : 'monday_task'\n      }\n    });\n  });\n\n  console.log(\n    `✅ Payload built: ${Object.keys(buckets).length} drive files, ` +\n    `${approvedTasks.length} Monday tasks`\n  );\n\n  return out;                               // single output for both branches\n} catch (err) {\n  console.error('❌ Build-payload error:', err.message);\n  // Fail fast so Error-Mgr handles it\n  throw err;\n}"
+        "jsCode": "// TRUE HITL BUILD PAYLOAD – SIMPLIFIED (≤ 100 lines)\n// Input  : output from \"HTTP GET / approved (wait ≤ 5 min)\" node\n// Output : mixed stream for Switch → Monday, Drive, Discord, Railway\n// • monday_task      – one item per task\n// • drive_file       – one ACTION_ITEMS.json per meeting\n// • discord          – one nicely-formatted message\n// • webapp_payload   – the *unmodified* approved JSON for POST → /api/ingest/\n\ntry {\n  const approved = items[0]?.json || {};\n  const tasks    = approved.approved_monday_tasks || [];\n  const execId   = approved.execution_id || `exec_${Date.now()}`;\n\n  if (!tasks.length) throw new Error('No approved_monday_tasks found');\n\n  /* ------------------------------------------------------------------\n   * 1)  Monday.com tasks (flat list, untouched)\n   * ----------------------------------------------------------------*/\n  const out = tasks.map(t => ({ json: { ...t, itemType: 'monday_task' } }));\n\n  /* ------------------------------------------------------------------\n   * 2)  Drive files – group tasks by meeting (1 file per meeting)\n   * ----------------------------------------------------------------*/\n  const meetings = {};\n  tasks.forEach(t => {\n    const mId = t.meeting_id || 'unknown';\n    meetings[mId] ||= {\n      meeting_id       : mId,\n      meeting_title    : t.meeting_title     || 'Untitled Meeting',\n      meeting_date     : t.meeting_date      || Date.now(),\n      organizer_email  : t.meeting_organizer || '',\n      tasks            : []\n    };\n    meetings[mId].tasks.push({ ...t });\n  });\n\n  const safe = s => (s || 'Untitled')\n    .replace(/[\\\\/:*?\"<>|]+/g, '_')\n    .replace(/\\s+/g, '_')\n    .substring(0, 80);\n\n  Object.values(meetings).forEach(m => {\n    out.push({\n      json: {\n        ...m,\n        total_tasks: m.tasks.length,\n        filename   : `${safe(m.meeting_title)}_${m.meeting_id}_ACTION_ITEMS.json`,\n        generated_at: new Date().toISOString(),\n        itemType   : 'drive_file'\n      }\n    });\n  });\n\n  /* ------------------------------------------------------------------\n   * 3)  Discord summary message\n   * ----------------------------------------------------------------*/\n  const discordMsg = [\n    `✅ *TaskForge* – ${tasks.length} tasks approved`,\n    `🆔 Execution ID: ${execId}`,\n    '',\n    '🔗 View list:',\n    'https://taskforgedjangousers-production.up.railway.app/tasks/'\n  ].join('\\n');\n\n  out.push({ json: { discord_message: discordMsg, itemType: 'discord' } });\n\n  /* ------------------------------------------------------------------\n   * 4)  Railway payload – **pass-through** (no tweaks)\n   * ----------------------------------------------------------------*/\n  out.push({ json: { railway_payload: approved, itemType: 'webapp_payload' } });\n\n  console.log(`🎯 Build-payload finished: ${out.length} items ➜ Switch`);\n  return out;\n\n} catch (err) {\n  console.error('❌ Build-payload error:', err.message);\n  return [{\n    json: {\n      railway_payload: { error: err.message, timestamp: new Date().toISOString() },\n      itemType: 'webapp_payload'\n    }\n  }];\n}"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
         -3120,
-        2500
+        2640
       ],
       "id": "34e2fb64-912a-46dd-a9c9-ae7936a15e8a",
       "name": "Build payload · GDrive & Monday.com"
@@ -617,8 +617,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        -3340,
-        2320
+        -5460,
+        2900
       ],
       "id": "f678b72e-e04b-4cd8-b32d-117a0a619a13",
       "name": "Branch: Monday task vs Drive file"
@@ -788,13 +788,14 @@
           "cachedResultName": "general",
           "cachedResultUrl": "https://discord.com/channels/1387861125781262521/1387861126229917849"
         },
+        "content": "={{ $json.discord_message }} ",
         "options": {}
       },
       "type": "n8n-nodes-base.discord",
       "typeVersion": 2,
       "position": [
-        -2440,
-        2440
+        -2720,
+        2380
       ],
       "id": "fc125d38-3d7d-4129-9fb8-19078bd73929",
       "name": "Discord",
@@ -808,16 +809,40 @@
     },
     {
       "parameters": {
+        "mode": "expression",
+        "output": "={{ $json.itemType === 'monday_task' ? 0 : $json.itemType === 'drive_file' ? 1 : $json.itemType === 'discord' ? 2 : 3 }}",
+        "looseTypeValidation": true
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -3300,
+        2340
+      ],
+      "id": "6c1356ff-ddeb-49e6-b984-607e7f95ffc3",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://taskforgedjangousers-production.up.railway.app/api/ingest/",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "{\n  \"Content-Type\": \"application/json\"\n}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \n  \"execution_id\": $json.railway_payload.execution_id, \n  \"monday_tasks\": $json.railway_payload.approved_monday_tasks, \n  \"meeting_title\": $json.railway_payload.meeting_title || 'TaskForge Meeting',\n  \"meeting_organizer\": $json.railway_payload.meeting_organizer || '',\n  \"total_tasks\": $json.railway_payload.total_tasks || $json.railway_payload.approved_count,\n  \"meetings\": $json.railway_payload.meetings || []\n} }}",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -2440,
-        2680
+        -2720,
+        2620
       ],
-      "id": "0ae401a6-0a29-43c1-b76a-74a355e1078c",
-      "name": "HTTP Request"
+      "id": "b8568b98-3bcc-494c-8965-b450b829b3fa",
+      "name": "HTTP POST / store-tasks",
+      "retryOnFail": true
     }
   ],
   "pinData": {},
@@ -1032,17 +1057,7 @@
       "main": [
         [
           {
-            "node": "Branch: Monday task vs Drive file",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Discord",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "HTTP Request",
+            "node": "Switch",
             "type": "main",
             "index": 0
           }
@@ -1051,25 +1066,8 @@
     },
     "Branch: Monday task vs Drive file": {
       "main": [
-        [
-          {
-            "node": "Load · Create Approved action items on Monday board",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Transform · Keep only NEW ACTION_ITEMS.json",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Check Drive · Action-item duplicates (ACTION_ITEMS folder)",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [],
+        []
       ]
     },
     "Check Drive · Action-item duplicates (ACTION_ITEMS folder)": {
@@ -1131,13 +1129,55 @@
       "main": [
         []
       ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Load · Create Approved action items on Monday board",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Transform · Keep only NEW ACTION_ITEMS.json",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Check Drive · Action-item duplicates (ACTION_ITEMS folder)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Discord",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP POST / store-tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP POST / store-tasks": {
+      "main": [
+        []
+      ]
     }
   },
   "active": false,
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "ce9597ce-4e89-4ad0-b214-0b1865fa9609",
+  "versionId": "a15704f1-4e98-44c7-a1b2-c13b874c8a6a",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "a6f30bd66fed7fcd249de9838e08b9e7b2adf65dc6cc773a40f041d31551bafa"
