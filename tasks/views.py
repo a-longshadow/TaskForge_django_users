@@ -394,9 +394,15 @@ class PublicActionItemView(ListView):
     def get_queryset(self):
         from datetime import timedelta
 
-        cutoff = timezone.now() - timedelta(hours=24)
-        # Show all tasks, including those that have been reviewed
-        return Task.objects.select_related("meeting").order_by("-meeting__date", "-created_at")
+        # Get status filter from query params, default to showing only pending tasks
+        status_filter = self.request.GET.get('status', Task.Status.PENDING)
+        
+        # If "all" is specified, show all tasks
+        if status_filter == 'all':
+            return Task.objects.select_related("meeting").order_by("-meeting__date", "-created_at")
+        
+        # Otherwise filter by the specified status
+        return Task.objects.filter(status=status_filter).select_related("meeting").order_by("-meeting__date", "-created_at")
 
 
 @csrf_exempt

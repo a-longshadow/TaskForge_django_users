@@ -9,49 +9,370 @@
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
+    <style>
+        .task-card {
+            transition: all 0.3s cubic-bezier(0.17, 0.67, 0.83, 0.67);
+            position: relative;
+            overflow: hidden;
+            border-left-width: 6px;
+            border-left-color: var(--border-color, #3B82F6);
+            background-color: var(--bg-color, #fff);
+        }
+        .task-card:hover {
+            transform: translateY(-4px) scale(1.01);
+            box-shadow: 0 15px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            z-index: 10;
+        }
+        .filter-pill {
+            transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+            position: relative;
+            overflow: hidden;
+        }
+        .filter-pill:hover {
+            transform: scale(1.08);
+        }
+        .filter-pill::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, rgba(255,255,255,0.2), rgba(255,255,255,0));
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        .filter-pill:hover::before {
+            opacity: 1;
+        }
+        .meeting-header {
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        .meeting-header:hover {
+            background-color: #f9fafb;
+            transform: translateY(-1px);
+        }
+        .meeting-header::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle at var(--x, 50%) var(--y, 50%), rgba(255,255,255,0.8) 0%, rgba(255,255,255,0) 60%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            pointer-events: none;
+        }
+        .meeting-header:hover::after {
+            opacity: 0.6;
+        }
+        .toastify {
+            font-weight: 500;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            transform: translateZ(0);
+            animation: toast-in 0.3s cubic-bezier(0.21, 1.02, 0.73, 1) forwards;
+        }
+        
+        @keyframes toast-in {
+            0% { transform: translateY(-20px); opacity: 0; }
+            100% { transform: translateY(0); opacity: 1; }
+        }
+        
+        /* Dynamic color system with enhanced effects */
+        .meeting-marker {
+            width: 6px;
+            height: 36px;
+            border-radius: 3px;
+            margin-right: 16px;
+            transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+            background: linear-gradient(to bottom, var(--marker-color, #3B82F6), var(--marker-color-accent, #60A5FA));
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .meeting-marker::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 15%;
+            background: rgba(255, 255, 255, 0.5);
+            border-radius: 3px;
+            transform: translateY(-100%);
+            transition: transform 0.5s ease;
+        }
+        
+        .meeting-header:hover .meeting-marker::after {
+            transform: translateY(0) translateY(300%);
+            transition: transform 1.2s ease;
+        }
+        
+        .meeting-header:hover .meeting-marker {
+            width: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15), 0 0 12px var(--marker-color-accent, #60A5FA);
+            transform: scale(1.1);
+        }
+        
+        /* Task card enhancements with psychedelic effects */
+        .task-card {
+            border-left-width: 6px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .task-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, var(--gradient-start, rgba(255,255,255,0.2)), transparent 70%);
+            pointer-events: none;
+            opacity: 0.07;
+            transition: opacity 0.3s ease, transform 0.5s ease;
+        }
+        
+        .task-card:hover::before {
+            opacity: 0.15;
+            transform: scale(1.05) rotate(1deg);
+        }
+        
+        /* Psychedelic pulse effect for approved tasks */
+        .task-card[data-status="approved"]::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle at top right, var(--border-color, #22c55e), transparent 70%);
+            opacity: 0;
+            pointer-events: none;
+            animation: pulse-glow 3s ease-in-out infinite;
+        }
+        
+        /* Subtle ripple effect when clicking buttons */
+        button {
+            position: relative;
+            overflow: hidden;
+        }
+        
+        button .ripple {
+            position: absolute;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.5);
+            transform: scale(0);
+            animation: ripple 0.6s linear;
+            pointer-events: none;
+        }
+        
+        @keyframes ripple {
+            to {
+                transform: scale(2.5);
+                opacity: 0;
+            }
+        }
+        
+        /* Empty state styling with floating animation */
+        .empty-state {
+            background: linear-gradient(135deg, #f0f9ff, #e0f2fe, #f0f9ff);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .empty-state::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(45deg, rgba(255,255,255,0) 40%, rgba(255,255,255,0.8) 50%, rgba(255,255,255,0) 60%);
+            z-index: 1;
+            animation: shimmer 3s infinite linear;
+        }
+        
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+        
+        /* Task status indicators with animation */
+        .status-indicator {
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 0;
+            height: 0;
+            border-style: solid;
+            border-width: 0 24px 24px 0;
+            border-color: transparent var(--status-color, #22c55e) transparent transparent;
+            transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+            transform-origin: top right;
+            animation: status-appear 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        
+        @keyframes status-appear {
+            from { transform: scale(0); }
+            to { transform: scale(1); }
+        }
+        
+        /* Psychedelic animations */
+        @keyframes pulse-glow {
+            0% { opacity: 0.05; }
+            50% { opacity: 0.15; }
+            100% { opacity: 0.05; }
+        }
+        
+        @keyframes float {
+            0% { transform: translateY(0px); }
+            50% { transform: translateY(-5px); }
+            100% { transform: translateY(0px); }
+        }
+        
+        @keyframes gradient-shift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        
+        /* Special cosmic card effects */
+        .cosmic-card::before {
+            background: var(--before-bg, linear-gradient(135deg, rgba(255,255,255,0.2), transparent 70%));
+            opacity: 0.1;
+        }
+        
+        .cosmic-card:hover::before {
+            opacity: 0.2;
+            animation: gradient-shift 3s ease infinite;
+        }
+        
+        /* Neon glow effects */
+        .neon-effect {
+            box-shadow: 0 0 5px var(--glow-color, rgba(59, 130, 246, 0.5)), 
+                        0 0 10px var(--glow-color, rgba(59, 130, 246, 0.3));
+            transition: all 0.3s ease;
+        }
+        
+        .neon-effect:hover {
+            box-shadow: 0 0 10px var(--glow-color, rgba(59, 130, 246, 0.7)), 
+                        0 0 20px var(--glow-color, rgba(59, 130, 246, 0.5)), 
+                        0 0 30px var(--glow-color, rgba(59, 130, 246, 0.3));
+        }
+        
+        /* Interactive light effect for meeting headers */
+        .light-effect {
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .light-effect::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle at var(--x, 50%) var(--y, 50%), 
+                                        rgba(255,255,255,0.8) 0%, 
+                                        rgba(255,255,255,0) 60%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            pointer-events: none;
+            mix-blend-mode: overlay;
+        }
+        
+        .light-effect:hover::after {
+            opacity: 0.8;
+        }
+    </style>
 </head>
 <body class="bg-[#F5F7FB] min-h-screen text-gray-800">
 <div class="max-w-5xl mx-auto py-8 px-4">
-    <h1 class="text-3xl font-semibold mb-6">Tasks Awaiting Review</h1>
-    <a href="/" class="text-blue-600 hover:underline mb-6 inline-block">← Home</a>
+    <h1 class="text-3xl font-semibold mb-6 text-gray-900">Tasks Awaiting Review</h1>
+    <div class="flex justify-between items-center mb-6">
+        <a href="/" class="text-blue-600 hover:underline inline-flex items-center group">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1 group-hover:transform group-hover:-translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+            Home
+        </a>
+        <div class="flex items-center gap-2">
+            <span class="text-sm font-medium text-gray-700">Filter:</span>
+            <a href="?status=pending" class="filter-pill text-sm px-4 py-1.5 rounded-full shadow-sm {% if request.GET.status != 'all' and request.GET.status != 'approved' and request.GET.status != 'rejected' %}bg-blue-600 text-white{% else %}bg-white text-gray-800 hover:bg-gray-50{% endif %}">Pending</a>
+            <a href="?status=approved" class="filter-pill text-sm px-4 py-1.5 rounded-full shadow-sm {% if request.GET.status == 'approved' %}bg-green-600 text-white{% else %}bg-white text-gray-800 hover:bg-gray-50{% endif %}">Approved</a>
+            <a href="?status=rejected" class="filter-pill text-sm px-4 py-1.5 rounded-full shadow-sm {% if request.GET.status == 'rejected' %}bg-red-600 text-white{% else %}bg-white text-gray-800 hover:bg-gray-50{% endif %}">Declined</a>
+            <a href="?status=all" class="filter-pill text-sm px-4 py-1.5 rounded-full shadow-sm {% if request.GET.status == 'all' %}bg-purple-600 text-white{% else %}bg-white text-gray-800 hover:bg-gray-50{% endif %}">All</a>
+        </div>
+    </div>
 
     {% regroup tasks by meeting as meeting_list %}
     {% for meeting in meeting_list %}
-    <div class="mb-4" id="meeting-container-{{ meeting.grouper.id }}">
-        <button type="button" class="w-full flex justify-between items-center bg-white border border-gray-200 rounded-lg px-4 py-3 hover:bg-gray-50 transition" onclick="toggleTasks('{{ meeting.grouper.id }}')">
-            <span class="font-medium">{{ meeting.grouper.title }} – {{ meeting.grouper.date|date:"F jS, Y H:i" }} (<span id="task-count-{{ meeting.grouper.id }}">{{ meeting.list|length }}</span> tasks)</span>
-            <svg xmlns="http://www.w3.org/2000/svg" id="arrow-{{ meeting.grouper.id }}" class="h-5 w-5 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+    <div class="mb-4" id="meeting-container-{{ meeting.grouper.id }}" data-meeting-id="{{ meeting.grouper.id }}">
+        <button type="button" class="w-full flex justify-between items-center bg-white border border-gray-200 rounded-lg px-4 py-3 hover:bg-gray-50 transition shadow-sm meeting-header" onclick="toggleTasks('{{ meeting.grouper.id }}')">
+            <div class="flex items-center">
+                <span id="meeting-marker-{{ meeting.grouper.id }}" class="meeting-marker"></span>
+                <div>
+                    <span class="font-medium text-gray-900">{{ meeting.grouper.title }}</span>
+                    <div class="text-sm text-gray-500">{{ meeting.grouper.date|date:"F jS, Y H:i" }} (<span id="task-count-{{ meeting.grouper.id }}">{{ meeting.list|length }}</span> tasks)</div>
+                </div>
+            </div>
+            <svg xmlns="http://www.w3.org/2000/svg" id="arrow-{{ meeting.grouper.id }}" class="h-5 w-5 transition-transform text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
         </button>
-        <div id="tasks-{{ meeting.grouper.id }}" class="hidden space-y-3 mt-2">
+        <div id="tasks-{{ meeting.grouper.id }}" class="hidden space-y-3 mt-2 pl-2">
             {% for t in meeting.list %}
-            <div id="task-{{ t.id }}" class="bg-white border border-gray-200 rounded-lg p-4 shadow-sm" data-meeting-id="{{ meeting.grouper.id }}">
+            <div id="task-{{ t.id }}" class="border border-gray-200 rounded-lg p-4 shadow-sm hover:shadow transition-shadow duration-200 task-card border-l-4" data-meeting-id="{{ meeting.grouper.id }}" data-status="{{ t.status }}">
                 <div class="flex justify-between items-start">
                     <p class="text-lg font-semibold text-gray-900 max-w-xl" id="title-{{ t.id }}">{{ t.task_item|truncatechars:80 }}</p>
                     <div class="flex gap-2">
-                        <button class="bg-green-600 text-white text-sm px-3 py-1 rounded hover:bg-green-700" onclick="approveTask('{{ t.id }}')">Approve</button>
-                        <button class="bg-red-600 text-white text-sm px-3 py-1 rounded hover:bg-red-700" onclick="openDeclineModal('{{ t.id }}')">Decline</button>
+                        {% if t.status == "pending" %}
+                            <button id="approve-btn-{{ t.id }}" class="bg-green-600 text-white text-sm px-3 py-1 rounded hover:bg-green-700 transition-colors" onclick="approveTask('{{ t.id }}')">Approve</button>
+                            <button id="decline-btn-{{ t.id }}" class="bg-red-600 text-white text-sm px-3 py-1 rounded hover:bg-red-700 transition-colors" onclick="openDeclineModal('{{ t.id }}')">Decline</button>
+                        {% elif t.status == "approved" %}
+                            <span class="bg-green-100 text-green-800 text-sm px-3 py-1 rounded">Approved</span>
+                        {% elif t.status == "rejected" %}
+                            <span class="bg-red-100 text-red-800 text-sm px-3 py-1 rounded">Declined</span>
+                        {% endif %}
                     </div>
                 </div>
                 <div class="mt-1 text-sm font-medium flex flex-wrap gap-4 items-center">
                     <span>Assignees: {{ t.assignee_names|default:"—" }}</span>
                     <span>Due: {{ t.date_expected|date:"F jS, Y" }}</span>
                     <span class="flex items-center gap-1">Priority: <span class="px-2 py-0.5 rounded-full text-white text-xs {% if t.priority == 'High' %}bg-red-600{% elif t.priority == 'Medium' %}bg-amber-500{% else %}bg-gray-500{% endif %}">{{ t.priority }}</span></span>
-                    {% if t.posted_to_monday %}
-                    <span class="px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 text-xs flex items-center">
+                    {% if t.posted_to_monday or t.monday_item_id %}
+                    <span id="monday-badge-{{ t.id }}" class="px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 text-xs flex items-center">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
                         </svg>
                         Posted to Monday
                     </span>
                     {% endif %}
+                    {% if t.status == "rejected" %}
+                    <span class="px-2 py-0.5 rounded-full bg-red-100 text-red-800 text-xs">
+                        Reason: {{ t.rejected_reason|truncatechars:50 }}
+                    </span>
+                    {% endif %}
                 </div>
-                <p class="mt-2 text-sm">{{ t.brief_description }}</p>
+                <p class="mt-2 text-sm text-gray-600">{{ t.brief_description }}</p>
             </div>
             {% endfor %}
         </div>
     </div>
     {% empty %}
-    <p>No tasks pending review 🎉</p>
+    <div class="bg-white border border-gray-200 rounded-lg p-8 shadow-sm text-center empty-state">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 mx-auto text-gray-300 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <p class="text-lg font-medium text-gray-900">No tasks found</p>
+        <p class="text-gray-500 mt-1">There are no tasks matching your current filter.</p>
+        <a href="?status=all" class="mt-4 inline-block px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">View all tasks</a>
+    </div>
     {% endfor %}
 </div>
 
@@ -157,9 +478,14 @@ function submitDecline() {
     return;
   }
   
-  // Get the meeting ID before removing the task
+  // Get the task element
   const taskElement = document.getElementById(`task-${currentTaskId}`);
-  const meetingId = taskElement ? taskElement.getAttribute('data-meeting-id') : null;
+  
+  // Disable buttons to prevent double submission
+  disableTaskButtons(currentTaskId);
+  
+  // Show the task is being processed
+  updateTaskStatus(currentTaskId, 'processing', 'Processing...');
   
   // Send the request to decline the task
   fetch(`/api/tasks/${currentTaskId}/reject/?confirm=true`, {
@@ -177,24 +503,23 @@ function submitDecline() {
     return response.json();
   })
   .then(data => {
-    // Remove the task from the DOM
-    if (taskElement) {
-      taskElement.remove();
-      
-      // Update the task count
-      if (meetingId) {
-        updateTaskCount(meetingId);
-      }
-      
-      // Show success toast
-      Toastify({ 
-        text: 'Task declined successfully', 
-        duration: 3000, 
-        gravity: 'bottom', 
-        position: 'center',
-        backgroundColor: '#6B7280'
-      }).showToast();
-    }
+    // Show success toast
+    Toastify({ 
+      text: 'Task declined successfully', 
+      duration: 3000, 
+      gravity: 'bottom', 
+      position: 'center',
+      backgroundColor: '#6B7280',
+      stopOnFocus: true
+    }).showToast();
+    
+    // Update task UI to show declined status
+    updateTaskStatus(currentTaskId, 'rejected', reason);
+    
+    // Delay reload to allow toast to be seen
+    setTimeout(() => {
+      window.location.reload();
+    }, 1500);
   })
   .catch(error => {
     console.error('Error:', error);
@@ -203,8 +528,12 @@ function submitDecline() {
       duration: 3000, 
       gravity: 'bottom',
       position: 'center', 
-      backgroundColor: '#EF4444'
+      backgroundColor: '#EF4444',
+      stopOnFocus: true
     }).showToast();
+    
+    // Re-enable buttons if there was an error
+    enableTaskButtons(currentTaskId);
   });
   
   closeDeclineModal();
@@ -213,9 +542,14 @@ function submitDecline() {
 function submitApprove() {
   if (!currentTaskId) return;
   
-  // Get the meeting ID before removing the task
+  // Get the task element
   const taskElement = document.getElementById(`task-${currentTaskId}`);
-  const meetingId = taskElement ? taskElement.getAttribute('data-meeting-id') : null;
+  
+  // Disable buttons to prevent double submission
+  disableTaskButtons(currentTaskId);
+  
+  // Show the task is being processed
+  updateTaskStatus(currentTaskId, 'processing', 'Processing...');
   
   // Send the request to approve the task
   fetch(`/api/tasks/${currentTaskId}/approve/?confirm=true`, {
@@ -232,24 +566,26 @@ function submitApprove() {
     return response.json();
   })
   .then(data => {
-    // Remove the task from the DOM
-    if (taskElement) {
-      taskElement.remove();
-      
-      // Update the task count
-      if (meetingId) {
-        updateTaskCount(meetingId);
-      }
-      
-      // Show success toast
-      Toastify({ 
-        text: 'Task approved and sent to Monday.com', 
-        duration: 3000, 
-        gravity: 'bottom', 
-        position: 'center',
-        backgroundColor: '#10B981'
-      }).showToast();
-    }
+    // Show success toast
+    Toastify({ 
+      text: 'Task approved and sent to Monday.com', 
+      duration: 3000, 
+      gravity: 'bottom', 
+      position: 'center',
+      backgroundColor: '#10B981',
+      stopOnFocus: true
+    }).showToast();
+    
+    // Update task UI to show approved status
+    updateTaskStatus(currentTaskId, 'approved');
+    
+    // Add Monday badge if not already present
+    addMondayBadge(currentTaskId);
+    
+    // Delay reload to allow toast to be seen
+    setTimeout(() => {
+      window.location.reload();
+    }, 1500);
   })
   .catch(error => {
     console.error('Error:', error);
@@ -258,11 +594,117 @@ function submitApprove() {
       duration: 3000, 
       gravity: 'bottom',
       position: 'center', 
-      backgroundColor: '#EF4444'
+      backgroundColor: '#EF4444',
+      stopOnFocus: true
     }).showToast();
+    
+    // Re-enable buttons if there was an error
+    enableTaskButtons(currentTaskId);
   });
   
   closeApproveModal();
+}
+
+// Helper functions for UI updates
+function disableTaskButtons(taskId) {
+  const approveBtn = document.getElementById(`approve-btn-${taskId}`);
+  const declineBtn = document.getElementById(`decline-btn-${taskId}`);
+  
+  if (approveBtn) {
+    approveBtn.disabled = true;
+    approveBtn.classList.add('opacity-50', 'cursor-not-allowed');
+  }
+  
+  if (declineBtn) {
+    declineBtn.disabled = true;
+    declineBtn.classList.add('opacity-50', 'cursor-not-allowed');
+  }
+}
+
+function enableTaskButtons(taskId) {
+  const approveBtn = document.getElementById(`approve-btn-${taskId}`);
+  const declineBtn = document.getElementById(`decline-btn-${taskId}`);
+  
+  if (approveBtn) {
+    approveBtn.disabled = false;
+    approveBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+  }
+  
+  if (declineBtn) {
+    declineBtn.disabled = false;
+    declineBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+  }
+}
+
+function updateTaskStatus(taskId, status, reason = '') {
+  const taskElement = document.getElementById(`task-${taskId}`);
+  if (!taskElement) return;
+  
+  // Update data attribute
+  taskElement.setAttribute('data-status', status);
+  
+  // Preserve the task's color classes
+  const taskBgClass = Array.from(taskElement.classList).find(cls => cls.startsWith('task-bg-'));
+  const taskBorderClass = Array.from(taskElement.classList).find(cls => cls.startsWith('task-border-'));
+  
+  // Update action buttons area
+  const actionArea = taskElement.querySelector('.flex.gap-2');
+  if (actionArea) {
+    if (status === 'processing') {
+      actionArea.innerHTML = `
+        <span class="bg-yellow-100 text-yellow-800 text-sm px-3 py-1 rounded flex items-center">
+          <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-yellow-800" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          Processing...
+        </span>
+      `;
+    } else if (status === 'approved') {
+      actionArea.innerHTML = `<span class="bg-green-100 text-green-800 text-sm px-3 py-1 rounded">Approved</span>`;
+    } else if (status === 'rejected') {
+      actionArea.innerHTML = `<span class="bg-red-100 text-red-800 text-sm px-3 py-1 rounded">Declined</span>`;
+      
+      // Add rejection reason if provided
+      if (reason) {
+        const metaArea = taskElement.querySelector('.mt-1.text-sm.font-medium.flex.flex-wrap.gap-4.items-center');
+        if (metaArea) {
+          // Check if reason badge already exists
+          const existingReason = metaArea.querySelector('.bg-red-100.text-red-800');
+          if (!existingReason) {
+            const reasonBadge = document.createElement('span');
+            reasonBadge.className = 'px-2 py-0.5 rounded-full bg-red-100 text-red-800 text-xs';
+            reasonBadge.textContent = `Reason: ${reason.substring(0, 50)}${reason.length > 50 ? '...' : ''}`;
+            metaArea.appendChild(reasonBadge);
+          }
+        }
+      }
+    }
+  }
+}
+
+function addMondayBadge(taskId) {
+  const taskElement = document.getElementById(`task-${taskId}`);
+  if (!taskElement) return;
+  
+  const metaArea = taskElement.querySelector('.mt-1.text-sm.font-medium.flex.flex-wrap.gap-4.items-center');
+  if (!metaArea) return;
+  
+  // Check if badge already exists
+  const existingBadge = document.getElementById(`monday-badge-${taskId}`);
+  if (existingBadge) return;
+  
+  // Create and add the badge
+  const badge = document.createElement('span');
+  badge.id = `monday-badge-${taskId}`;
+  badge.className = 'px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 text-xs flex items-center';
+  badge.innerHTML = `
+    <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+    </svg>
+    Posted to Monday
+  `;
+  metaArea.appendChild(badge);
 }
 
 function approveTask(id) {
@@ -293,6 +735,611 @@ document.addEventListener('keydown', function(e) {
     }
   }
 });
+
+// Add interactive light effect tracking
+document.addEventListener('DOMContentLoaded', function() {
+    // Toast configuration
+    const toastOptions = {
+      duration: 3000,
+      gravity: "top",
+      position: "right",
+      style: {
+        background: "white",
+        color: "#333",
+        padding: "12px 20px",
+        borderRadius: "8px"
+      }
+    };
+
+    const lightEffects = document.querySelectorAll('.light-effect, .meeting-header');
+    
+    lightEffects.forEach(el => {
+      el.addEventListener('mousemove', function(e) {
+        const rect = this.getBoundingClientRect();
+        const x = ((e.clientX - rect.left) / this.clientWidth) * 100;
+        const y = ((e.clientY - rect.top) / this.clientHeight) * 100;
+        
+        this.style.setProperty('--x', `${x}%`);
+        this.style.setProperty('--y', `${y}%`);
+      });
+    });
+    
+    // Add ripple effect to buttons
+    const buttons = document.querySelectorAll('button');
+    buttons.forEach(button => {
+      button.addEventListener('click', function(e) {
+        const rect = this.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        
+        const ripple = document.createElement('span');
+        ripple.className = 'ripple';
+        ripple.style.left = `${x}px`;
+        ripple.style.top = `${y}px`;
+        
+        this.appendChild(ripple);
+        
+        setTimeout(() => {
+          ripple.remove();
+        }, 600);
+      });
+    });
+    
+    // Handle task approval
+    document.querySelectorAll('.approve-btn').forEach(btn => {
+      btn.addEventListener('click', function(e) {
+        e.preventDefault();
+        const taskId = this.dataset.taskId;
+        const card = document.getElementById(`task-${taskId}`);
+        
+        // Disable buttons to prevent double clicks
+        disableActionButtons(taskId);
+        
+        // Show toast notification with animation
+        Toastify({
+          ...toastOptions,
+          text: "Task approved! Updating...",
+          style: {
+            ...toastOptions.style,
+            background: "#dcfce7",
+            borderLeft: "4px solid #22c55e"
+          }
+        }).showToast();
+        
+        // Update UI immediately
+        updateTaskStatus(taskId, 'approved');
+        
+        // Send approval request
+        fetch(`/api/tasks/${taskId}/approve/`, {
+          method: 'POST',
+          headers: {
+            'X-CSRFToken': getCookie('csrftoken'),
+            'Content-Type': 'application/json'
+          }
+        })
+        .then(response => {
+          if (!response.ok) throw new Error('Network response was not ok');
+          return response.json();
+        })
+        .then(data => {
+          console.log('Task approved:', data);
+          // Reload page after a delay to show the toast
+          setTimeout(() => location.reload(), 1500);
+        })
+        .catch(error => {
+          console.error('Error approving task:', error);
+          // Re-enable buttons if there was an error
+          enableActionButtons(taskId);
+          
+          Toastify({
+            ...toastOptions,
+            text: "Error approving task. Please try again.",
+            style: {
+              ...toastOptions.style,
+              background: "#fee2e2",
+              borderLeft: "4px solid #ef4444"
+            }
+          }).showToast();
+        });
+      });
+    });
+
+    // Handle task decline
+    document.querySelectorAll('.decline-btn').forEach(btn => {
+      btn.addEventListener('click', function(e) {
+        e.preventDefault();
+        const taskId = this.dataset.taskId;
+        const card = document.getElementById(`task-${taskId}`);
+        
+        // Disable buttons to prevent double clicks
+        disableActionButtons(taskId);
+        
+        // Show toast notification with animation
+        Toastify({
+          ...toastOptions,
+          text: "Task declined! Updating...",
+          style: {
+            ...toastOptions.style,
+            background: "#fee2e2",
+            borderLeft: "4px solid #ef4444"
+          }
+        }).showToast();
+        
+        // Update UI immediately
+        updateTaskStatus(taskId, 'declined');
+        
+        // Send decline request
+        fetch(`/api/tasks/${taskId}/decline/`, {
+          method: 'POST',
+          headers: {
+            'X-CSRFToken': getCookie('csrftoken'),
+            'Content-Type': 'application/json'
+          }
+        })
+        .then(response => {
+          if (!response.ok) throw new Error('Network response was not ok');
+          return response.json();
+        })
+        .then(data => {
+          console.log('Task declined:', data);
+          // Reload page after a delay to show the toast
+          setTimeout(() => location.reload(), 1500);
+        })
+        .catch(error => {
+          console.error('Error declining task:', error);
+          // Re-enable buttons if there was an error
+          enableActionButtons(taskId);
+          
+          Toastify({
+            ...toastOptions,
+            text: "Error declining task. Please try again.",
+            style: {
+              ...toastOptions.style,
+              background: "#fee2e2",
+              borderLeft: "4px solid #ef4444"
+            }
+          }).showToast();
+        });
+      });
+    });
+
+    // Helper function to disable action buttons
+    function disableActionButtons(taskId) {
+      const approveBtn = document.querySelector(`.approve-btn[data-task-id="${taskId}"]`);
+      const declineBtn = document.querySelector(`.decline-btn[data-task-id="${taskId}"]`);
+      
+      if (approveBtn) {
+        approveBtn.disabled = true;
+        approveBtn.classList.add('opacity-50', 'cursor-not-allowed');
+      }
+      
+      if (declineBtn) {
+        declineBtn.disabled = true;
+        declineBtn.classList.add('opacity-50', 'cursor-not-allowed');
+      }
+    }
+
+    // Helper function to enable action buttons
+    function enableActionButtons(taskId) {
+      const approveBtn = document.querySelector(`.approve-btn[data-task-id="${taskId}"]`);
+      const declineBtn = document.querySelector(`.decline-btn[data-task-id="${taskId}"]`);
+      
+      if (approveBtn) {
+        approveBtn.disabled = false;
+        approveBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+      }
+      
+      if (declineBtn) {
+        declineBtn.disabled = false;
+        declineBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+      }
+    }
+
+    // Helper function to update task status in the UI with enhanced animations
+    function updateTaskStatus(taskId, status) {
+      const card = document.getElementById(`task-${taskId}`);
+      if (!card) return;
+      
+      // Add status indicator with animation
+      const statusIndicator = document.createElement('div');
+      statusIndicator.className = 'status-indicator';
+      statusIndicator.style.setProperty('--status-color', status === 'approved' ? '#22c55e' : '#ef4444');
+      card.appendChild(statusIndicator);
+      
+      // Update card appearance with animation
+      card.classList.add('opacity-75');
+      
+      // Add psychedelic effect based on status
+      if (status === 'approved') {
+        card.classList.add('approved-card');
+        // Add subtle pulse animation
+        const pulseEffect = document.createElement('div');
+        pulseEffect.className = 'absolute inset-0 z-0 pointer-events-none';
+        pulseEffect.style.animation = 'pulse-glow 3s ease-in-out infinite';
+        pulseEffect.style.background = `radial-gradient(circle at top right, ${card.style.getPropertyValue('--border-color')}40, transparent 70%)`;
+        card.appendChild(pulseEffect);
+      } else {
+        card.classList.add('declined-card');
+      }
+      
+      // Update filter count
+      updateFilterCounts();
+    }
+
+    // Helper function to get CSRF token
+    function getCookie(name) {
+      let cookieValue = null;
+      if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+          const cookie = cookies[i].trim();
+          if (cookie.substring(0, name.length + 1) === (name + '=')) {
+            cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+            break;
+          }
+        }
+      }
+      return cookieValue;
+    }
+
+    // Handle filter buttons with enhanced animations
+    document.querySelectorAll('.filter-pill').forEach(pill => {
+      pill.addEventListener('click', function() {
+        const filter = this.dataset.filter;
+        
+        // Update active state on pills with animation
+        document.querySelectorAll('.filter-pill').forEach(p => {
+          p.classList.remove('bg-blue-600', 'text-white');
+          p.classList.add('bg-gray-100', 'text-gray-800');
+        });
+        this.classList.remove('bg-gray-100', 'text-gray-800');
+        this.classList.add('bg-blue-600', 'text-white');
+        
+        // Show/hide tasks based on filter with staggered animation
+        const tasks = document.querySelectorAll('.task-card');
+        let visibleCount = 0;
+        let delay = 0;
+        
+        tasks.forEach(task => {
+          if (filter === 'all' || task.dataset.status === filter) {
+            if (task.classList.contains('hidden')) {
+              task.style.opacity = '0';
+              task.style.transform = 'translateY(20px)';
+              task.classList.remove('hidden');
+              
+              // Staggered animation
+              setTimeout(() => {
+                task.style.transition = 'opacity 0.4s ease, transform 0.4s ease';
+                task.style.opacity = '1';
+                task.style.transform = 'translateY(0)';
+              }, delay);
+              delay += 50; // Stagger by 50ms
+            }
+            visibleCount++;
+          } else {
+            task.classList.add('hidden');
+          }
+        });
+        
+        // Show/hide empty state
+        const emptyState = document.getElementById('empty-state');
+        if (visibleCount === 0) {
+          emptyState.classList.remove('hidden');
+          emptyState.style.opacity = '0';
+          setTimeout(() => {
+            emptyState.style.transition = 'opacity 0.4s ease';
+            emptyState.style.opacity = '1';
+          }, 100);
+        } else {
+          emptyState.classList.add('hidden');
+        }
+        
+        // Update counts
+        updateFilterCounts();
+      });
+    });
+
+    // Update filter counts
+    function updateFilterCounts() {
+      const pendingCount = document.querySelectorAll('.task-card[data-status="pending"]:not(.hidden)').length;
+      const approvedCount = document.querySelectorAll('.task-card[data-status="approved"]:not(.hidden)').length;
+      const declinedCount = document.querySelectorAll('.task-card[data-status="declined"]:not(.hidden)').length;
+      const totalCount = pendingCount + approvedCount + declinedCount;
+      
+      document.getElementById('all-count').textContent = totalCount;
+      document.getElementById('pending-count').textContent = pendingCount;
+      document.getElementById('approved-count').textContent = approvedCount;
+      document.getElementById('declined-count').textContent = declinedCount;
+    }
+    
+    // Generate vibrant color palette for meetings
+    function generateVibrantColors() {
+      // Get all unique meeting IDs
+      const meetingElements = document.querySelectorAll('[data-meeting-id]');
+      const meetingIds = new Set();
+      meetingElements.forEach(el => meetingIds.add(el.dataset.meetingId));
+      
+      // Generate vibrant colors for each meeting
+      meetingIds.forEach(meetingId => {
+        // Generate a vibrant, unique color for each meeting using a psychedelic algorithm
+        // Use the meeting ID to seed the randomness for consistency
+        const hash = hashCode(meetingId);
+        
+        // Use multiple color generation strategies for maximum variety
+        const colorStrategy = hash % 5; // 0-4 different color strategies
+        
+        let primaryColor, accentColor, bgColor, gradientColor;
+        
+        switch(colorStrategy) {
+          case 0: // Neon colors
+            // Generate primary color with extremely high saturation
+            const neonHue = (hash * 0.618033988749895) % 1;
+            primaryColor = HSLToHex(
+              Math.floor(neonHue * 360), 
+              95 + (hash % 5), // 95-100% saturation
+              55 + (hash % 15) // 55-70% lightness for neon effect
+            );
+            
+            // Complementary neon accent
+            accentColor = HSLToHex(
+              Math.floor((neonHue + 0.5) % 1 * 360),
+              95 + (hash % 5), // 95-100% saturation
+              60 + (hash % 10) // 60-70% lightness
+            );
+            
+            // Subtle background
+            bgColor = HSLToHex(
+              Math.floor(neonHue * 360),
+              15 + (hash % 10), // 15-25% saturation
+              94 + (hash % 6)  // 94-99% lightness
+            );
+            
+            // Gradient with neon glow
+            gradientColor = HSLToHex(
+              Math.floor(neonHue * 360),
+              70 + (hash % 30), // 70-100% saturation
+              65 + (hash % 15)  // 65-80% lightness
+            );
+            break;
+            
+          case 1: // Pastel psychedelic
+            const pastelHue = ((hash * 0.37) % 1);
+            primaryColor = HSLToHex(
+              Math.floor(pastelHue * 360),
+              70 + (hash % 20), // 70-90% saturation
+              75 + (hash % 15) // 75-90% lightness for pastel
+            );
+            
+            // Triadic color harmony
+            accentColor = HSLToHex(
+              Math.floor((pastelHue + 0.33) % 1 * 360),
+              70 + (hash % 20),
+              70 + (hash % 20)
+            );
+            
+            // Very light background
+            bgColor = HSLToHex(
+              Math.floor(pastelHue * 360),
+              20 + (hash % 15),
+              92 + (hash % 8)
+            );
+            
+            // Gradient with pastel glow
+            gradientColor = HSLToHex(
+              Math.floor((pastelHue + 0.05) % 1 * 360),
+              50 + (hash % 30),
+              80 + (hash % 15)
+            );
+            break;
+            
+          case 2: // Vibrant jewel tones
+            const jewelHue = ((hash * 0.91) % 1);
+            primaryColor = HSLToHex(
+              Math.floor(jewelHue * 360),
+              85 + (hash % 15), // 85-100% saturation
+              40 + (hash % 15) // 40-55% lightness for jewel tones
+            );
+            
+            // Split complementary
+            accentColor = HSLToHex(
+              Math.floor((jewelHue + 0.6) % 1 * 360),
+              85 + (hash % 15),
+              45 + (hash % 15)
+            );
+            
+            // Subtle background with jewel undertone
+            bgColor = HSLToHex(
+              Math.floor(jewelHue * 360),
+              25 + (hash % 15),
+              90 + (hash % 10)
+            );
+            
+            // Rich gradient
+            gradientColor = HSLToHex(
+              Math.floor(jewelHue * 360),
+              75 + (hash % 25),
+              60 + (hash % 20)
+            );
+            break;
+            
+          case 3: // Electric pop colors
+            const popHue = ((hash * 0.27) % 1);
+            primaryColor = HSLToHex(
+              Math.floor(popHue * 360),
+              90 + (hash % 10), // 90-100% saturation
+              60 + (hash % 10) // 60-70% lightness for pop
+            );
+            
+            // Analogous pop color
+            accentColor = HSLToHex(
+              Math.floor((popHue + 0.1) % 1 * 360),
+              90 + (hash % 10),
+              50 + (hash % 20)
+            );
+            
+            // Bright background
+            bgColor = HSLToHex(
+              Math.floor(popHue * 360),
+              20 + (hash % 10),
+              95 + (hash % 5)
+            );
+            
+            // Vibrant gradient
+            gradientColor = HSLToHex(
+              Math.floor((popHue + 0.05) % 1 * 360),
+              80 + (hash % 20),
+              70 + (hash % 15)
+            );
+            break;
+            
+          case 4: // Cosmic/aurora colors
+            // Use sine waves to create flowing color patterns
+            const cosmicBase = (hash % 100) / 100;
+            const cosmicHue = Math.sin(cosmicBase * Math.PI * 2) * 0.5 + 0.5;
+            
+            primaryColor = HSLToHex(
+              Math.floor(cosmicHue * 360),
+              80 + (hash % 20), // 80-100% saturation
+              50 + (hash % 20) // 50-70% lightness
+            );
+            
+            // Flowing complementary
+            const accentHue = Math.sin((cosmicBase + 0.25) * Math.PI * 2) * 0.5 + 0.5;
+            accentColor = HSLToHex(
+              Math.floor(accentHue * 360),
+              80 + (hash % 20),
+              55 + (hash % 15)
+            );
+            
+            // Cosmic background
+            bgColor = HSLToHex(
+              Math.floor(cosmicHue * 360),
+              20 + (hash % 15),
+              92 + (hash % 8)
+            );
+            
+            // Aurora gradient
+            const gradientHue = Math.sin((cosmicBase + 0.1) * Math.PI * 2) * 0.5 + 0.5;
+            gradientColor = HSLToHex(
+              Math.floor(gradientHue * 360),
+              70 + (hash % 30),
+              65 + (hash % 25)
+            );
+            break;
+        }
+        
+        // Apply colors to meeting markers and task cards
+        document.querySelectorAll(`[data-meeting-id="${meetingId}"] .meeting-marker`).forEach(marker => {
+          // Create more exciting gradient effects based on color strategy
+          if (colorStrategy === 4) { // Cosmic/aurora effect
+            marker.style.background = `linear-gradient(135deg, ${primaryColor}, ${accentColor}, ${primaryColor})`;
+            marker.style.backgroundSize = '200% 200%';
+            marker.style.animation = 'gradient-shift 3s ease infinite';
+          } else if (colorStrategy === 0) { // Neon glow effect
+            marker.style.setProperty('--marker-color', primaryColor);
+            marker.style.setProperty('--marker-color-accent', accentColor);
+            marker.style.boxShadow = `0 0 8px ${primaryColor}80, 0 0 12px ${accentColor}40`;
+          } else {
+            marker.style.setProperty('--marker-color', primaryColor);
+            marker.style.setProperty('--marker-color-accent', accentColor);
+          }
+        });
+        
+        document.querySelectorAll(`.task-card[data-meeting-id="${meetingId}"]`).forEach(card => {
+          // Apply base colors
+          card.style.setProperty('--border-color', primaryColor);
+          card.style.setProperty('--bg-color', bgColor);
+          card.style.setProperty('--gradient-start', gradientColor);
+          
+          // Add special effects based on color strategy
+          if (colorStrategy === 0) { // Neon effect
+            card.style.boxShadow = `0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06), 0 0 0 1px ${primaryColor}20`;
+            card.onmouseover = () => {
+              card.style.boxShadow = `0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05), 0 0 0 1px ${primaryColor}30, 0 0 15px ${primaryColor}30`;
+            };
+            card.onmouseout = () => {
+              card.style.boxShadow = `0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06), 0 0 0 1px ${primaryColor}20`;
+            };
+          } else if (colorStrategy === 4) { // Cosmic/aurora effect
+            card.style.setProperty('--before-bg', `linear-gradient(135deg, ${gradientColor}, ${accentColor}50, transparent 70%)`);
+            card.classList.add('cosmic-card');
+          }
+        });
+      });
+      
+      // Add keyframes for animations if they don't exist
+      if (!document.getElementById('color-keyframes')) {
+        const style = document.createElement('style');
+        style.id = 'color-keyframes';
+        style.textContent = `
+          @keyframes gradient-shift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+          }
+          
+          .cosmic-card::before {
+            background: var(--before-bg);
+            opacity: 0.1;
+          }
+          
+          .cosmic-card:hover::before {
+            opacity: 0.2;
+            animation: gradient-shift 3s ease infinite;
+          }
+        `;
+        document.head.appendChild(style);
+      }
+    }
+    
+    // Helper function to convert meeting ID to a consistent hash
+    function hashCode(str) {
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) - hash) + str.charCodeAt(i);
+        hash |= 0; // Convert to 32bit integer
+      }
+      return Math.abs(hash);
+    }
+    
+    // Helper function to convert HSL to HEX
+    function HSLToHex(h, s, l) {
+      s /= 100;
+      l /= 100;
+      
+      const c = (1 - Math.abs(2 * l - 1)) * s;
+      const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+      const m = l - c / 2;
+      
+      let r, g, b;
+      
+      if (0 <= h && h < 60) {
+        r = c; g = x; b = 0;
+      } else if (60 <= h && h < 120) {
+        r = x; g = c; b = 0;
+      } else if (120 <= h && h < 180) {
+        r = 0; g = c; b = x;
+      } else if (180 <= h && h < 240) {
+        r = 0; g = x; b = c;
+      } else if (240 <= h && h < 300) {
+        r = x; g = 0; b = c;
+      } else {
+        r = c; g = 0; b = x;
+      }
+      
+      r = Math.round((r + m) * 255).toString(16).padStart(2, '0');
+      g = Math.round((g + m) * 255).toString(16).padStart(2, '0');
+      b = Math.round((b + m) * 255).toString(16).padStart(2, '0');
+      
+      return `#${r}${g}${b}`;
+    }
+    
+    // Initialize the vibrant colors
+    generateVibrantColors();
+    
+    // Initialize filter counts
+    updateFilterCounts();
+  });
 </script>
 </body>
 </html>
